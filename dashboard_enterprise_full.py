@@ -4,6 +4,9 @@ import streamlit as st
 import altair as alt
 from datetime import date
 from sklearn.cluster import KMeans
+import subprocess
+import os
+import sys
 
 st.set_page_config(layout="wide")
 
@@ -52,7 +55,7 @@ df_login = load_login_camera()
 # -------------------------------------------------------------------
 # Tabs
 # -------------------------------------------------------------------
-tab1, tab2, tab3 = st.tabs(["📊 Analytics", "🛠 Camera Health", "📄 Raw Data"])
+tab1, tab2, tab3, tab4, tab5= st.tabs(["📊 Analytics", "🛠 Camera Health", "📄 Raw Data", "📊 Forecast", "🛠 Simulation Tool"])
 
 # ===================================================================
 # 📊 TAB 1 — ANALYTICS (Steps 1, 2, 4)
@@ -318,53 +321,6 @@ with tab1:
     st.altair_chart(compare_chart, width="stretch")
 
     # ----------------------------------------------------------------
-    # STEP 4 — Forecasting (moving average)
-    # ----------------------------------------------------------------
-    st.subheader("📈 Forecast — Next 7 Days (Moving Average)")
-
-    forecast_df = (
-        df.groupby("date")
-        .agg(total_flow=("total_inside", "sum"))
-        .reset_index()
-    ).sort_values("date")
-
-    if len(forecast_df) >= 3:
-        forecast_df["ma3"] = forecast_df["total_flow"].rolling(window=3).mean()
-
-        last_date = forecast_df["date"].max()
-        future_dates = pd.date_range(last_date + pd.Timedelta(days=1), periods=7)
-
-        last_ma = forecast_df["ma3"].iloc[-1]
-        future_values = [last_ma] * 7
-
-        future_df = pd.DataFrame({
-            "date": future_dates,
-            "forecast": future_values
-        })
-
-        chart_forecast = (
-            alt.Chart(forecast_df)
-            .mark_line(point=True)
-            .encode(
-                x="date:T",
-                y="total_flow:Q",
-                tooltip=["date", "total_flow"]
-            )
-            +
-            alt.Chart(future_df)
-            .mark_line(point=True, strokeDash=[5, 5], color="orange")
-            .encode(
-                x="date:T",
-                y="forecast:Q",
-                tooltip=["date", "forecast"]
-            )
-        ).properties(height=350)
-
-        st.altair_chart(chart_forecast, width="stretch")
-    else:
-        st.info("Not enough data points to compute a 3-day moving average forecast.")
-
-    # ----------------------------------------------------------------
     # STEP 4 — Anomaly detection (z-score on daily totals)
     # ----------------------------------------------------------------
     st.subheader("⚠️ Anomaly Detection (Daily Inside Flow)")
@@ -481,3 +437,189 @@ with tab3:
 
     st.subheader("Login Camera Table (raw)")
     st.dataframe(df_login)
+
+
+# ===================================================================
+# 📄 TAB 4 — 7 days forecast
+# ===================================================================
+with tab4:
+
+    # ----------------------------------------------------------------
+    # STEP 4 — Forecasting (moving average)
+    # ----------------------------------------------------------------
+    st.subheader("📈 Forecast — Next 7 Days (Moving Average) must be improved")
+    
+    forecast_df = (
+        df.groupby("date")
+        .agg(total_flow=("total_inside", "sum"))
+        .reset_index()
+    ).sort_values("date")
+
+    if len(forecast_df) >= 3:
+        forecast_df["ma3"] = forecast_df["total_flow"].rolling(window=3).mean()
+
+        last_date = forecast_df["date"].max()
+        future_dates = pd.date_range(last_date + pd.Timedelta(days=1), periods=7)
+
+        last_ma = forecast_df["ma3"].iloc[-1]
+        future_values = [last_ma] * 7
+
+        future_df = pd.DataFrame({
+            "date": future_dates,
+            "forecast": future_values
+        })
+
+        chart_forecast = (
+            alt.Chart(forecast_df)
+            .mark_line(point=True)
+            .encode(
+                x="date:T",
+                y="total_flow:Q",
+                tooltip=["date", "total_flow"]
+            )
+            +
+            alt.Chart(future_df)
+            .mark_line(point=True, strokeDash=[5, 5], color="orange")
+            .encode(
+                x="date:T",
+                y="forecast:Q",
+                tooltip=["date", "forecast"]
+            )
+        ).properties(height=350)
+
+        st.altair_chart(chart_forecast, width="stretch")
+    else:
+        st.info("Not enough data points to compute a 3-day moving average forecast.")
+
+
+
+
+# ===================================================================
+# 📄 TAB 5 — cameras fail simulation
+# ===================================================================
+
+with tab5:
+
+    st.header("Simulation Tools")
+    st.write("Use these tools to simulate database errors and test system resilience.")
+
+    import subprocess
+    import sys
+    import os
+
+    def run_script(script_name, args=None):
+        """Run a Python script inside the simulate/ folder with optional arguments."""
+        script_path = os.path.join("simulate", script_name)
+
+        cmd = [sys.executable, script_path]
+
+        if args:
+            cmd.extend(args)
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        st.subheader("Output")
+        if result.stdout:
+            st.code(result.stdout)
+
+        if result.stderr:
+            st.error(result.stderr)
+
+    # ---------------------------------------------------------
+    # 1. SIMULATE ANOMALY
+    # ---------------------------------------------------------
+    with st.expander("Simulate Anomaly"):
+        st.write("Create a sudden spike or drop in people count for a specific camera.")
+
+        camera_id = st.text_input("Camera ID", key="anomaly_camera_id")
+        date = st.date_input("Date", key="anomaly_date")
+        anomaly_type = st.selectbox("Anomaly Type", ["drop", "spike"], key="anomaly_type")
+        magnitude = st.number_input("Magnitude (%)", min_value=1.0, step=1.0, key="anomaly_magnitude")
+
+        if st.button("Run Anomaly Simulation", key="run_anomaly"):
+            if not camera_id:
+                st.error("Camera ID is required.")
+            else:
+                args = [
+                    "--camera-id", camera_id,
+                    "--date", date.strftime("%Y-%m-%d"),
+                    "--anomaly-type", anomaly_type,
+                    "--magnitude", str(magnitude)
+                ]
+                run_script("simulate_anomaly.py", args)
+
+    # ---------------------------------------------------------
+    # 2. SIMULATE CAMERA FAILURE
+    # ---------------------------------------------------------
+    with st.expander("Simulate Camera Failure"):
+        st.write("Force a camera to go offline in the database.")
+
+        camera_fail_id = st.text_input("Camera ID to fail", key="camera_fail_id")
+
+        if st.button("Trigger Camera Failure", key="run_camera_fail"):
+            if not camera_fail_id:
+                st.error("Camera ID is required.")
+            else:
+                run_script("simulate_camera_fail.py", ["--camera-id", camera_fail_id])
+
+    # ---------------------------------------------------------
+    # 3. SIMULATE MISSING DATA
+    # ---------------------------------------------------------
+    with st.expander("Simulate Missing Data"):
+        st.write("Remove or blank out data for a specific date or camera.")
+
+        missing_camera_id = st.text_input("Camera ID", key="missing_camera_id")
+        missing_date = st.date_input("Date", key="missing_date")
+
+        if st.button("Simulate Missing Data", key="run_missing"):
+            if not missing_camera_id:
+                st.error("Camera ID is required.")
+            else:
+                args = [
+                    "--camera-id", missing_camera_id,
+                    "--date", missing_date.strftime("%Y-%m-%d")
+                ]
+                run_script("simulate_missing_data.py", args)
+
+    # ---------------------------------------------------------
+    # 4. SIMULATE WRONG TOTALS
+    # ---------------------------------------------------------
+    with st.expander("Simulate Wrong Totals"):
+        st.write("Inject incorrect totals into the peopleflow table.")
+
+        wrong_camera_id = st.text_input("Camera ID", key="wrong_camera_id")
+        wrong_date = st.date_input("Date", key="wrong_date")
+        wrong_value = st.number_input("Wrong Total Value", min_value=0, step=1, key="wrong_value")
+
+        if st.button("Inject Wrong Totals", key="run_wrong_totals"):
+            if not wrong_camera_id:
+                st.error("Camera ID is required.")
+            else:
+                args = [
+                    "--camera-id", wrong_camera_id,
+                    "--date", wrong_date.strftime("%Y-%m-%d"),
+                    "--value", str(wrong_value)
+                ]
+                run_script("simulate_wrong_totals.py", args)
+
+    # ---------------------------------------------------------
+    # 5. SIMULATE DATA CAME DELAYED
+    # ---------------------------------------------------------
+    with st.expander("Simulate Data Came Delayed"):
+        st.write("Upload a CSV file representing delayed data to be inserted into the database.")
+
+        uploaded_file = st.file_uploader("Upload CSV file", type=["csv"], key="delayed_csv")
+
+        if uploaded_file is not None:
+            st.success("File uploaded successfully.")
+
+            # Save uploaded file temporarily
+            temp_path = os.path.join("simulate", "temp_delayed_data.csv")
+            with open(temp_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+
+            st.write("Ready to simulate delayed data.")
+
+            if st.button("Run Delayed Data Simulation", key="run_delayed_data"):
+                args = ["--file", temp_path]
+                run_script("simulate_data_came_delayed.py", args)

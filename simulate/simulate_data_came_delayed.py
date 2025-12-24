@@ -1,0 +1,1 @@
+print("Data came delayed simulation")

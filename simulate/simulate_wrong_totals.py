@@ -1,0 +1,2 @@
+print("Wrong totals simulation"
+      )
