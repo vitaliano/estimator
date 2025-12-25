@@ -623,3 +623,15 @@ with tab5:
             if st.button("Run Delayed Data Simulation", key="run_delayed_data"):
                 args = ["--file", temp_path]
                 run_script("simulate_data_came_delayed.py", args)
+                
+                
+
+    # ---------------------------------------------------------
+    # 6. GO BACK TO THE ORIGINAL DATABASE
+    # ---------------------------------------------------------
+    with st.expander("Go back to the original db"):
+        st.write("recover the origina database from camera_data.csv")
+
+
+        if st.button("Go back", key="run_go_back"):
+            run_script("goback.py")
