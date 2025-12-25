@@ -501,7 +501,7 @@ with tab4:
 with tab5:
 
     st.header("Simulation Tools")
-    st.write("Use these tools to simulate database errors and test system resilience.")
+    st.write("Use these tools to simulate database errors and test system resilience. All the modifications refers to the last day in the db")
 
     import subprocess
     import sys
@@ -529,10 +529,10 @@ with tab5:
     # 1. SIMULATE ANOMALY
     # ---------------------------------------------------------
     with st.expander("Simulate Anomaly"):
-        st.write("Create a sudden spike or drop in people count for a specific camera.")
+        st.write("Create a sudden spike or drop in people count for a specific camera in the last day")
 
-        camera_id = st.text_input("Camera ID", key="anomaly_camera_id")
-        date = st.date_input("Date", key="anomaly_date")
+        camera_id = st.text_input("Camera ID", key="anomaly_camera_id") 
+        hour = st.number_input("Hour", key="anomaly_hour", min_value=9, step=1, max_value=23, )
         anomaly_type = st.selectbox("Anomaly Type", ["drop", "spike"], key="anomaly_type")
         magnitude = st.number_input("Magnitude (%)", min_value=1.0, step=1.0, key="anomaly_magnitude")
 
@@ -542,7 +542,7 @@ with tab5:
             else:
                 args = [
                     "--camera-id", camera_id,
-                    "--date", date.strftime("%Y-%m-%d"),
+                    "--hour", str(hour),
                     "--anomaly-type", anomaly_type,
                     "--magnitude", str(magnitude)
                 ]
@@ -555,21 +555,27 @@ with tab5:
         st.write("Force a camera to go offline in the database.")
 
         camera_fail_id = st.text_input("Camera ID to fail", key="camera_fail_id")
+        hour = st.number_input("Hour", key="fail_hour", min_value=9, step=1, max_value=23, )
 
         if st.button("Trigger Camera Failure", key="run_camera_fail"):
             if not camera_fail_id:
                 st.error("Camera ID is required.")
             else:
-                run_script("simulate_camera_fail.py", ["--camera-id", camera_fail_id])
+                args = [
+                    "--camera-id", camera_id,
+                    "--hour", str(hour),
+                ]
+                run_script("simulate_camera_fail.py", ["--camera-id", args])
 
     # ---------------------------------------------------------
     # 3. SIMULATE MISSING DATA
     # ---------------------------------------------------------
     with st.expander("Simulate Missing Data"):
-        st.write("Remove or blank out data for a specific date or camera.")
+        st.write("Remove or blank out data for a specific hour on a camera.")
 
         missing_camera_id = st.text_input("Camera ID", key="missing_camera_id")
-        missing_date = st.date_input("Date", key="missing_date")
+        hour = st.number_input("Hour", key="missing_hour", min_value=9, step=1, max_value=23, )
+
 
         if st.button("Simulate Missing Data", key="run_missing"):
             if not missing_camera_id:
@@ -577,7 +583,7 @@ with tab5:
             else:
                 args = [
                     "--camera-id", missing_camera_id,
-                    "--date", missing_date.strftime("%Y-%m-%d")
+                    "--hour", str(hour)
                 ]
                 run_script("simulate_missing_data.py", args)
 
@@ -588,7 +594,6 @@ with tab5:
         st.write("Inject incorrect totals into the peopleflow table.")
 
         wrong_camera_id = st.text_input("Camera ID", key="wrong_camera_id")
-        wrong_date = st.date_input("Date", key="wrong_date")
         wrong_value = st.number_input("Wrong Total Value", min_value=0, step=1, key="wrong_value")
 
         if st.button("Inject Wrong Totals", key="run_wrong_totals"):
@@ -597,7 +602,6 @@ with tab5:
             else:
                 args = [
                     "--camera-id", wrong_camera_id,
-                    "--date", wrong_date.strftime("%Y-%m-%d"),
                     "--value", str(wrong_value)
                 ]
                 run_script("simulate_wrong_totals.py", args)
