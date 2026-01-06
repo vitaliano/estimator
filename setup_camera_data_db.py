@@ -4,151 +4,157 @@
 
 import os
 import sqlite3
-
-DB_NAME = "nodehub.db"
-
-# -----------------------------------------
-# Remove o banco se já existir
-# -----------------------------------------
-if os.path.exists(DB_NAME):
-    os.remove(DB_NAME)
-    print("Database deleted:", DB_NAME)
-
-# -----------------------------------------
-# Cria conexão com o novo banco
-# -----------------------------------------
-conn = sqlite3.connect(DB_NAME)
-cursor = conn.cursor()
-
-# -----------------------------------------
-# Cria tabela peopleflowtotals
-# -----------------------------------------
-cursor.execute("""
-CREATE TABLE peopleflowtotals (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_at DATETIME,
-    camera_id INTEGER,
-    total_inside INTEGER,
-    total_outside INTEGER,
-    valid INTEGER
-);
-""")
-
-# -----------------------------------------
-# Cria tabela login_camera
-# -----------------------------------------
-cursor.execute("""
-CREATE TABLE login_camera (
-    id INTEGER,
-    location TEXT,
-    pong_ts DATETIME,
-    pong_ts_last_fail DATETIME
-);
-""")
-
-conn.commit()
-conn.close()
-
-print("Database created successfully with required tables.")
-
-
-# -----------------------------------------
-# popula a tabela peopleflowtotals
-# -----------------------------------------
-
+from datetime import datetime
 import csv
 
-CSV_FILE = "camera_data.csv"
 
-# Conecta ao banco
-conn = sqlite3.connect(DB_NAME)
-cursor = conn.cursor()
+def setup_camera_data_db():
 
-# Abre o CSV
-with open(CSV_FILE, "r") as f:
-    reader = csv.reader(f)
-    
-    
-    header = next(reader)
+    DB_NAME = "nodehub.db"
 
-    # Descobre índices das colunas
-    idx_camera = header.index("camera_id")
-    idx_created_at = header.index("created_at")
-    idx_total_inside = header.index("total_inside")
-    idx_total_outside = header.index("total_outside")
-    idx_valid = header.index("valid")
-    
-    next(reader)  # pula o header
+    # -----------------------------------------
+    # Remove o banco se já existir
+    # -----------------------------------------
+    if os.path.exists(DB_NAME):
+        os.remove(DB_NAME)
+        print("Database deleted:", DB_NAME)
 
-    for row in reader:
-        camera_id = int(row[idx_camera])
-        created_at = row[idx_created_at]  # já vem como string no formato correto
-        total_inside = int(row[idx_total_inside])
-        total_outside = int(row[idx_total_outside])
-        valid = int(row[idx_valid])
+    # -----------------------------------------
+    # Cria conexão com o novo banco
+    # -----------------------------------------
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
 
-        cursor.execute("""
-            INSERT INTO peopleflowtotals 
-            (camera_id, created_at, total_inside, total_outside, valid)
-            VALUES (?, ?, ?, ?, ?)
-        """, (camera_id, created_at, total_inside, total_outside, valid))
-
-# Salva e fecha
-conn.commit()
-conn.close()
-
-print("Import completed: data inserted into peopleflowtotals.")
-
-
-# -----------------------------------------
-# popula a tabela login_camera
-# -----------------------------------------
-
-from datetime import datetime
-
-CSV_FILE = "camera_data.csv"
-
-# Conecta ao banco
-conn = sqlite3.connect(DB_NAME)
-cursor = conn.cursor()
-
-# Dicionário: camera_id → (location, last_created_at)
-camera_info = {}
-
-with open(CSV_FILE, "r") as f:
-    reader = csv.reader(f)
-    header = next(reader)
-
-    # Descobre índices das colunas
-    idx_camera = header.index("camera_id")
-    idx_location = header.index("location")
-    idx_created_at= header.index("created_at")
-
-    for row in reader:
-        camera_id = int(row[idx_camera])
-        location = row[idx_location]
-        created_at_str = row[idx_created_at]
-
-        # Converte string para datetime
-        created_at = datetime.fromisoformat(created_at_str)
-
-        # Se ainda não existe, adiciona
-        if camera_id not in camera_info:
-            camera_info[camera_id] = (location, created_at)
-        else:
-            # Atualiza se o timestamp for mais recente
-            _, last_ts = camera_info[camera_id]
-            if created_at > last_ts:
-                camera_info[camera_id] = (location, created_at)
-
-# Insere no banco
-for camera_id, (location, last_ts) in camera_info.items():
+    # -----------------------------------------
+    # Cria tabela peopleflowtotals
+    # -----------------------------------------
     cursor.execute("""
-        INSERT INTO login_camera (id, location, pong_ts, pong_ts_last_fail)
-        VALUES (?, ?, ?, NULL)
-    """, (camera_id, location, last_ts.isoformat()))
+    CREATE TABLE peopleflowtotals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at DATETIME,
+        camera_id INTEGER,
+        total_inside INTEGER,
+        total_outside INTEGER,
+        valid INTEGER
+    );
+    """)
 
-conn.commit()
-conn.close()
+    # -----------------------------------------
+    # Cria tabela login_camera
+    # -----------------------------------------
+    cursor.execute("""
+    CREATE TABLE login_camera (
+        id INTEGER,
+        location TEXT,
+        pong_ts DATETIME,
+        pong_ts_last_fail DATETIME
+    );
+    """)
 
-print("Inserted camera_id, location and latest created_at into login_camera.")
+    conn.commit()
+    conn.close()
+
+    print("Database created successfully with required tables.")
+
+
+    # -----------------------------------------
+    # popula a tabela peopleflowtotals
+    # -----------------------------------------
+
+
+    CSV_FILE = "camera_data.csv"
+
+    # Conecta ao banco
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    # Abre o CSV
+    with open(CSV_FILE, "r") as f:
+        reader = csv.reader(f)
+        
+        
+        header = next(reader)
+
+        # Descobre índices das colunas
+        idx_camera = header.index("camera_id")
+        idx_created_at = header.index("created_at")
+        idx_total_inside = header.index("total_inside")
+        idx_total_outside = header.index("total_outside")
+        idx_valid = header.index("valid")
+        
+        next(reader)  # pula o header
+
+        for row in reader:
+            camera_id = int(row[idx_camera])
+            created_at = row[idx_created_at]  # já vem como string no formato correto
+            total_inside = int(row[idx_total_inside])
+            total_outside = int(row[idx_total_outside])
+            valid = int(row[idx_valid])
+
+            cursor.execute("""
+                INSERT INTO peopleflowtotals 
+                (camera_id, created_at, total_inside, total_outside, valid)
+                VALUES (?, ?, ?, ?, ?)
+            """, (camera_id, created_at, total_inside, total_outside, valid))
+
+    # Salva e fecha
+    conn.commit()
+    conn.close()
+
+    print("Import completed: data inserted into peopleflowtotals.")
+
+
+    # -----------------------------------------
+    # popula a tabela login_camera
+    # -----------------------------------------
+
+    CSV_FILE = "camera_data.csv"
+
+    # Conecta ao banco
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    # Dicionário: camera_id → (location, last_created_at)
+    camera_info = {}
+
+    with open(CSV_FILE, "r") as f:
+        reader = csv.reader(f)
+        header = next(reader)
+
+        # Descobre índices das colunas
+        idx_camera = header.index("camera_id")
+        idx_location = header.index("location")
+        idx_created_at= header.index("created_at")
+
+        for row in reader:
+            camera_id = int(row[idx_camera])
+            location = row[idx_location]
+            created_at_str = row[idx_created_at]
+
+            # Converte string para datetime
+            created_at = datetime.fromisoformat(created_at_str)
+
+            # Se ainda não existe, adiciona
+            if camera_id not in camera_info:
+                camera_info[camera_id] = (location, created_at)
+            else:
+                # Atualiza se o timestamp for mais recente
+                _, last_ts = camera_info[camera_id]
+                if created_at > last_ts:
+                    camera_info[camera_id] = (location, created_at)
+
+    # Insere no banco
+    for camera_id, (location, last_ts) in camera_info.items():
+        cursor.execute("""
+            INSERT INTO login_camera (id, location, pong_ts, pong_ts_last_fail)
+            VALUES (?, ?, ?, NULL)
+        """, (camera_id, location, last_ts.isoformat()))
+
+    conn.commit()
+    conn.close()
+    print("Import completed: data inserted into login_camera.")
+    
+ 
+if __name__ == "__main__":
+    setup_camera_data_db()
+    print("End of db setup script")

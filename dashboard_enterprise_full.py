@@ -555,18 +555,19 @@ with tab5:
         st.write("Force a camera to go offline in the database.")
 
         camera_fail_id = st.text_input("Camera ID to fail", key="camera_fail_id")
-        hour = st.number_input("Hour", key="fail_hour", min_value=9, step=1, max_value=23, )
+        hour = st.number_input("Hour", key="fail_hour", min_value=0, max_value=23, step=1)
 
         if st.button("Trigger Camera Failure", key="run_camera_fail"):
             if not camera_fail_id:
                 st.error("Camera ID is required.")
             else:
                 args = [
-                    "--camera-id", camera_id,
-                    "--hour", str(hour),
+                    "--camera-id", camera_fail_id,
+                    "--hour", str(hour)
                 ]
-                run_script("simulate_camera_fail.py", ["--camera-id", args])
-
+                run_script("simulate_camera_fail.py", args)
+    
+    
     # ---------------------------------------------------------
     # 3. SIMULATE MISSING DATA
     # ---------------------------------------------------------
