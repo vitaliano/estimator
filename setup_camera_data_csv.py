@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 
 #variáveis da simulação
 camera_ids = [148782, 155266, 155310, 155325, 155542, 155681]
+
 location = [
     'EntradaPrincipal', 'PracaDeAlimentacao', 'CorredorCentral',
     'CorredorLateral', 'LojaAncora', 'Estacionamnto']

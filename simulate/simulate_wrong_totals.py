@@ -1,2 +1,1 @@
-print("Wrong totals simulation"
-      )
+print("Wrong totals simulation")
