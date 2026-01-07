@@ -531,31 +531,34 @@ with tab5:
     with st.expander("Simulate Anomaly"):
         st.write("Create a sudden spike or drop in people count for a specific camera in the last day")
 
-        camera_id = st.text_input("Camera ID", key="anomaly_camera_id") 
-        hour = st.number_input("Hour", key="anomaly_hour", min_value=9, step=1, max_value=23, )
+        camera_fail_id = st.text_input("Camera ID", key="anomaly_camera_id") 
+        date_fail = st.date_input("Date", key="fail_date")  
+        hour_fail = st.number_input("Hour", key="fail_hour", min_value=0, max_value=23, step=1)
         anomaly_type = st.selectbox("Anomaly Type", ["drop", "spike"], key="anomaly_type")
         magnitude = st.number_input("Magnitude (%)", min_value=1.0, step=1.0, key="anomaly_magnitude")
 
         if st.button("Run Anomaly Simulation", key="run_anomaly"):
-            if not camera_id:
+            if not camera_fail_id:
                 st.error("Camera ID is required.")
             else:
                 args = [
-                    "--camera-id", camera_id,
-                    "--hour", str(hour),
+                    "--camera-id", camera_fail_id,
+                    "--target-date", str(date_fail),
+                    "--target-hour", str(hour_fail),
                     "--anomaly-type", anomaly_type,
                     "--magnitude", str(magnitude)
                 ]
                 run_script("simulate_anomaly.py", args)
 
     # ---------------------------------------------------------
-    # 2. SIMULATE CAMERA FAILURE
+    # 2. SIMULATE CAMERA FAIL
     # ---------------------------------------------------------
     with st.expander("Simulate Camera Failure"):
         st.write("Force a camera to go offline in the database.")
 
         camera_fail_id = st.text_input("Camera ID to fail", key="camera_fail_id")
-        hour = st.number_input("Hour", key="fail_hour", min_value=0, max_value=23, step=1)
+        date_fail = st.date_input("Date", key="fail_date")  
+        hour_fail = st.number_input("Hour", key="fail_hour", min_value=0, max_value=23, step=1)
 
         if st.button("Trigger Camera Failure", key="run_camera_fail"):
             if not camera_fail_id:
@@ -563,76 +566,36 @@ with tab5:
             else:
                 args = [
                     "--camera-id", camera_fail_id,
-                    "--hour", str(hour)
+                    "--target-date", str(date_fail),
+                    "--target-hour", str(hour_fail),
                 ]
                 run_script("simulate_camera_fail.py", args)
     
     
     # ---------------------------------------------------------
-    # 3. SIMULATE MISSING DATA
+    # 3. SIMULATE DATA ARRIVE LATE  
     # ---------------------------------------------------------
-    with st.expander("Simulate Missing Data"):
-        st.write("Remove or blank out data for a specific hour on a camera.")
+    with st.expander("Simulate Data arrive late"):
+        st.write("Simulate Data arrive late for a specific camera in the some day")
 
-        missing_camera_id = st.text_input("Camera ID", key="missing_camera_id")
-        hour = st.number_input("Hour", key="missing_hour", min_value=9, step=1, max_value=23, )
+        camera_fail_id = st.text_input("Camera ID to fail", key="camera_fail_id")
+        date_fail = st.date_input("Date", key="fail_date")  
+        hour_fail = st.number_input("Hour", key="fail_hour", min_value=0, max_value=23, step=1)
 
-
-        if st.button("Simulate Missing Data", key="run_missing"):
-            if not missing_camera_id:
+        if st.button("Trigger Camera Failure", key="run_camera_fail"):
+            if not camera_fail_id:
                 st.error("Camera ID is required.")
             else:
                 args = [
-                    "--camera-id", missing_camera_id,
-                    "--hour", str(hour)
+                    "--camera-id", camera_fail_id,
+                    "--target-date", str(date_fail),
+                    "--target-hour", str(hour_fail),
                 ]
-                run_script("simulate_missing_data.py", args)
-
-    # ---------------------------------------------------------
-    # 4. SIMULATE WRONG TOTALS
-    # ---------------------------------------------------------
-    with st.expander("Simulate Wrong Totals"):
-        st.write("Inject incorrect totals into the peopleflow table.")
-
-        wrong_camera_id = st.text_input("Camera ID", key="wrong_camera_id")
-        wrong_value = st.number_input("Wrong Total Value", min_value=0, step=1, key="wrong_value")
-
-        if st.button("Inject Wrong Totals", key="run_wrong_totals"):
-            if not wrong_camera_id:
-                st.error("Camera ID is required.")
-            else:
-                args = [
-                    "--camera-id", wrong_camera_id,
-                    "--value", str(wrong_value)
-                ]
-                run_script("simulate_wrong_totals.py", args)
-
-    # ---------------------------------------------------------
-    # 5. SIMULATE DATA CAME DELAYED
-    # ---------------------------------------------------------
-    with st.expander("Simulate Data Came Delayed"):
-        st.write("Upload a CSV file representing delayed data to be inserted into the database.")
-
-        uploaded_file = st.file_uploader("Upload CSV file", type=["csv"], key="delayed_csv")
-
-        if uploaded_file is not None:
-            st.success("File uploaded successfully.")
-
-            # Save uploaded file temporarily
-            temp_path = os.path.join("simulate", "temp_delayed_data.csv")
-            with open(temp_path, "wb") as f:
-                f.write(uploaded_file.getbuffer())
-
-            st.write("Ready to simulate delayed data.")
-
-            if st.button("Run Delayed Data Simulation", key="run_delayed_data"):
-                args = ["--file", temp_path]
-                run_script("simulate_data_came_delayed.py", args)
+                run_script("simulate_data_arrive_late.py", args)
                 
                 
-
     # ---------------------------------------------------------
-    # 6. GO BACK TO THE ORIGINAL DATABASE
+    # 4. GO BACK TO THE ORIGINAL DATABASE
     # ---------------------------------------------------------
     with st.expander("Go back to the original db"):
         st.write("recover the origina database from camera_data.csv")
