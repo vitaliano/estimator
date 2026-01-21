@@ -1,0 +1,133 @@
+"""
+0 em AZURE leia client-location uniques em login_camera onde comments='c' (cameras a corrigir)
+1 para cada par client-location  
+    1-1 garantir que o db lqlite client-location-db 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import pyodbc
+import pandas as pd
+import numpy as np
+import csv
+import os
+from datetime import datetime
+
+
+# ---------------------------------------------------------
+# 1. CONFIGURACAO DO SQL SERVER AZURE
+# ---------------------------------------------------------
+server = 'm4n1182kyd.database.windows.net'
+database = 'nodehub'
+username = 'nodehub-3rcorp'
+password = 'doutorCHAPATA@123'
+driver = '{ODBC Driver 17 for SQL Server}'  # Make sure this driver is installed
+
+conn = pyodbc.connect(
+    f'DRIVER={driver};SERVER={server};DATABASE={database};UID={username};PWD={password}'
+)
+cursor = conn.cursor()
+
+
+# ------------------------------
+# 2. Logging Helpers
+# ------------------------------
+LOGFILE = "camera_failure_and_correction_log.csv"
+def init_log():
+   Initialize log file with headers if not present.
+    if not os.path.exists(LOGFILE):
+        with open(LOGFILE, mode="w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "timestamp",
+                "client",
+                "location",
+                "camera_id",
+                "created_at",
+                "fail_type",
+                "correction_type", # can be increase, decrease on ins or outs
+                "correction_method", # can be by proportion or by history
+                "value_before_correction",
+                "value_after_correction",
+            ])
+
+def log_fail(client, location, cam_id, ts, fail_type, correction_type,
+                   correction_method,value_before_coorection,value_after_correction,correction_date):
+    Append one imputation record to the log file
+    with open(LOGFILE, mode="a", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            datetime.now().isoformat(),
+            client,
+            location,
+            cam_id,
+            ts,
+            fail_type,
+            correction_type,
+            correction_method,
+            value_before_coorection,
+            value_after_correction,
+            correction_date
+        ])
+
+
+# ------------------------------
+# 3. Get Client_Location list
+# ------------------------------
+def get_client_locations(conn):
+    # o campo comments em login camera indica que esta camera deve ser corrigida
+    query="SELECT DISTINCT client, location FROM login_camera WHERE comments ='c' ;"
+    client_locations=conn.execute(query).fetchall()
+    return client_locations
+
+
+# ------------------------------
+# Main Processing
+# ------------------------------
+
+
+def main():
+
+    init_log()
+    client_locations = get_client_locations(conn)
+    for client, location in client_locations:
+        failures=find_failures(conn, client, location)
+        corrections=find_corrections(conn, failures)
+        for correction in corrections:
+                apply_correction(conn, correction)
+                log_fail(
+                    client,
+                    location,
+                    correction['camera_id'],
+                    correction['created_at'],
+                    correction['fail_type'],
+                    correction['correction_type'],
+                    correction['correction_method'],
+                    correction['value_before_correction'],
+                    correction['value_after_correction'],
+                    correction['correction_date']
+                )
+        negative_test=get_non_negative_test(conn, client, locatio
+conn.close()
+
+if __name__ == "__main__":
+    main()
+
+
+"""
+
+
+
+
+

@@ -1,0 +1,239 @@
+import sqlite3
+import pandas as pd
+import numpy as np
+import csv
+import os
+from datetime import datetime
+
+DB_PATH = "nodehub.db"
+LOGFILE = "imputation_log.csv"
+
+# ------------------------------
+# Logging Helpers
+# ------------------------------
+def init_log():
+    """Initialize log file with headers if not present."""
+    if not os.path.exists(LOGFILE):
+        with open(LOGFILE, mode="w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "timestamp",
+                "client",
+                "location",
+                "camera_id",
+                "created_at",
+                "deleted_inside",
+                "deleted_outside",
+                "imputed_inside",
+                "imputed_outside",
+                "method"
+            ])
+
+def log_imputation(client, location, cam_id, ts, deleted_inside, deleted_outside,
+                   imputed_inside, imputed_outside, method):
+    """Append one imputation record to the log file."""
+    with open(LOGFILE, mode="a", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            datetime.now().isoformat(),
+            client,
+            location,
+            cam_id,
+            ts,
+            deleted_inside,
+            deleted_outside,
+            imputed_inside,
+            imputed_outside,
+            method
+        ])
+
+# ------------------------------
+# DB Helpers
+# ------------------------------
+def get_client_locations(conn):
+    return conn.execute("SELECT DISTINCT client, location FROM login_camera;").fetchall()
+
+def get_cameras_for_location(conn, client, location):
+    query = "SELECT * FROM login_camera WHERE client = ? AND location = ?;"
+    return pd.read_sql_query(query, conn, params=(client, location))
+
+def get_peopleflow_for_cameras(conn, camera_ids, last_day):
+    query = f"""
+    SELECT * FROM peopleflowtotals
+    WHERE camera_id IN ({",".join("?"*len(camera_ids))})
+      AND DATE(created_at) = ?
+      AND valid = 1;
+    """
+    params = camera_ids + [last_day]
+    return pd.read_sql_query(query, conn, params=params)
+
+def get_historical_counts(conn, camera_id, ts_str, weekday):
+    ts_hour= ts_str.split(" ")[1].split(":")[0]
+    ts_day= ts_str.split(" ")[0]
+    weekday_sql = (weekday + 1) % 7
+    query = """
+    SELECT total_inside, total_outside
+    FROM peopleflowtotals
+        WHERE camera_id = ?
+        AND DATE(created_at) <> ?
+        AND strftime('%w', created_at) = ?  
+        AND strftime('%H', created_at) = ?
+      AND valid = 1;
+    """
+    return pd.read_sql_query(query, conn, params=(camera_id,ts_day,str(weekday_sql,), ts_hour))
+
+def is_holiday(conn, ts):
+    """Check if ts is a holiday and return 'sunday', 'closed', or None."""
+    date_str = ts.strftime("%Y-%m-%d")
+    row = conn.execute("SELECT date, type FROM holidays WHERE date = ?", (date_str,)).fetchone()
+    if row:
+        return row[1].lower()  # expected values: 'sunday' or 'closed'
+    return None
+
+# ------------------------------
+# Failure Detection
+# ------------------------------
+def detect_failures(df, cameras, conn, last_day):
+    failures = []
+
+    day_dt = datetime.strptime(last_day, "%Y-%m-%d")
+    holiday_type = is_holiday(conn, day_dt)
+    if holiday_type == "closed":
+        return 0,failures  # no failures on closed days
+    elif holiday_type == "sunday":
+        weekday = 6  # Sunday
+    else:
+        weekday = day_dt.weekday()
+
+
+    # Build the set of all required hours for each camera
+    for _, cam in cameras.iterrows():
+        cam_id = cam['id']
+
+        if weekday == 6:  # Sunday
+            start = cam['counting_hour_sunday']
+            end   = cam['counting_hour_sunday_qtd']
+        elif weekday == 0:  # Monday
+            start = cam['counting_hour_monday']
+            end   = cam['counting_hour_monday_qtd']
+        elif weekday == 1:
+            start = cam['counting_hour_tuesday']
+            end   = cam['counting_hour_tuesday_qtd']
+        elif weekday == 2:
+            start = cam['counting_hour_wednesday']
+            end   = cam['counting_hour_wednesday_qtd']
+        elif weekday == 3:
+            start = cam['counting_hour_thursday']
+            end   = cam['counting_hour_thursday_qtd']
+        elif weekday == 4:
+            start = cam['counting_hour_fryday']
+            end   = cam['counting_hour_fryday_qtd']
+        elif weekday == 5:
+            start = cam['counting_hour_saturday']
+            end   = cam['counting_hour_saturday_qtd']
+
+        # Generate expected hours list
+        expected_hours = [day_dt.replace(hour=h, minute=0, second=0)
+                          for h in range(int(start), int(end)+1)]
+
+        # Check each expected hour
+        for ts in expected_hours:
+            ts_str = ts.strftime("%Y-%m-%d %H:%M:%S")
+            row = df[(df['camera_id'] == cam_id) & (df['created_at'] == ts_str)]
+            if row.empty:
+                # 🔑 No record at all → mark as failure
+                failures.append((cam_id, ts_str))
+            else: 
+                #ts_hour  = ts_str.split(" ")[1].split(":")[0]
+
+                # Record exists → check if too low
+                hist = get_historical_counts(conn, cam_id, ts_str,weekday)
+                if hist.empty:
+                    continue
+                current_total_inside_ = row['total_inside'].iloc[0] 
+                current_total_outside = row['total_outside'].iloc[0]
+                min_expected_inside = 0.6 * hist['total_inside'].min()
+                min_expected_outside = 0.6 * hist['total_outside'].min()
+                if current_total_inside_ < min_expected_inside or current_total_outside < min_expected_outside:
+                    print(f"Camera failed at this hour {cam_id} -- {ts_str}")
+                    failures.append((cam_id, ts_str))
+
+    return weekday,failures
+
+# ------------------------------
+# Imputation
+# ------------------------------
+def impute_values(conn, weekday,failures, df, cameras, client, location):
+    # Build a quick lookup of failures by timestamp
+    failures_by_ts = {}
+    for cam_id, ts_str in failures: 
+        failures_by_ts.setdefault(ts_str, set()).add(cam_id)
+
+    for cam_id, ts_str in failures:
+
+        #ts_hour  = ts_str.split(" ")[1].split(":")[0]
+        hist = get_historical_counts(conn, cam_id, ts_str, weekday)
+        if hist.empty:
+            continue
+        avg_inside = hist['total_inside'].mean()
+        avg_outside = hist['total_outside'].mean()
+
+        # 🔑 Exclude failing cameras from "other_cams"
+        failing_cams_at_ts = failures_by_ts.get(ts_str, set())
+        other_cams = df[(df['created_at'] == ts_str) &
+                        (~df['camera_id'].isin(failing_cams_at_ts)) &
+                        (df['camera_id'] != cam_id)]
+
+        if not other_cams.empty:
+            ratio_inside = avg_inside / other_cams['total_inside'].mean()
+            ratio_outside = avg_outside / other_cams['total_outside'].mean()
+            imputed_inside = int(other_cams['total_inside'].mean() * ratio_inside)
+            imputed_outside = int(other_cams['total_outside'].mean() * ratio_outside)
+            method = "proportional"
+        else:
+            imputed_inside = int(avg_inside)
+            imputed_outside = int(avg_outside)
+            method = "historical_regression"
+
+        # Delete faulty record if present
+        existing = conn.execute("""
+            SELECT total_inside, total_outside
+            FROM peopleflowtotals
+            WHERE camera_id = ? AND created_at = ?;
+        """, (cam_id, ts_str)).fetchone()
+        deleted_inside, deleted_outside = (existing if existing else (None, None))
+        conn.execute("DELETE FROM peopleflowtotals WHERE camera_id = ? AND created_at = ?;", (cam_id, ts_str))
+        
+        conn.execute("""
+        INSERT INTO peopleflowtotals (created_at, camera_id, total_inside, total_outside, valid)
+        VALUES (?, ?, ?, ?, 1)
+        """, (ts_str, cam_id, imputed_inside, imputed_outside))
+        conn.commit()
+
+        log_imputation(client, location, cam_id, ts_str,
+                       deleted_inside, deleted_outside,
+                       imputed_inside, imputed_outside, method)
+
+# ------------------------------
+# Main Processing
+# ------------------------------
+def process_client_location(conn, client, location):
+    print(f"Processing client={client}, location={location}")
+    cameras = get_cameras_for_location(conn, client, location)
+    if cameras.empty:
+        return
+    last_day = conn.execute("SELECT DATE(MAX(created_at)) FROM peopleflowtotals WHERE valid=1;").fetchone()[0]
+    df = get_peopleflow_for_cameras(conn, list(cameras['id']), last_day)
+    weekday,failures = detect_failures(df, cameras, conn,last_day)
+    impute_values(conn, weekday,failures, df, cameras, client, location)
+
+def main():
+    conn = sqlite3.connect(DB_PATH)
+    init_log()
+    client_locations = get_client_locations(conn)
+    for client, location in client_locations:
+        process_client_location(conn, client, location)
+    conn.close()
+
+if __name__ == "__main__":
+    main()

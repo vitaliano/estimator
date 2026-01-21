@@ -42,14 +42,48 @@ def setup_camera_data_db():
     # -----------------------------------------
     # Cria tabela login_camera
     # -----------------------------------------
+
     cursor.execute("""
     CREATE TABLE login_camera (
-        id INTEGER,
-        location TEXT,
-        pong_ts DATETIME,
-        pong_ts_last_fail DATETIME
-    );
+            id INTEGER, 
+            client TEXT NOT NULL DEFAULT net3rcorp, 
+            location TEXT NOT NULL DEFAULT teste, 
+            entrance TEXT, 
+            door TEXT DEFAULT central,
+            pong_ts DATETIME, 
+            pong_ts_last_fail DATETIME, 
+            counting_hour_sunday INTEGER NOT NULL DEFAULT (9), 
+            counting_hour_sunday_qtd INTEGER NOT NULL DEFAULT (22), 
+            counting_hour_monday INTEGER NOT NULL DEFAULT (9), 
+            counting_hour_monday_qtd INTEGER NOT NULL DEFAULT (22), 
+            counting_hour_tuesday INTEGER NOT NULL DEFAULT (9), 
+            counting_hour_tuesday_qtd INTEGER NOT NULL DEFAULT (22), 
+            counting_hour_wednesday INTEGER NOT NULL DEFAULT (9), 
+            counting_hour_wednesday_qtd INTEGER NOT NULL DEFAULT (22), 
+            counting_hour_thursday INTEGER NOT NULL DEFAULT (9), 
+            counting_hour_thursday_qtd INTEGER NOT NULL DEFAULT (22), 
+            counting_hour_fryday INTEGER NOT NULL DEFAULT (9), 
+            counting_hour_fryday_qtd INTEGER NOT NULL DEFAULT (22), 
+            counting_hour_saturday INTEGER NOT NULL DEFAULT (9), 
+            counting_hour_saturday_qtd INTEGER NOT NULL DEFAULT (22), 
+            counting_hour_holiday INTEGER NOT NULL DEFAULT (9), 
+            counting_hour_holiday_qtd INTEGER NOT NULL DEFAULT (22)
+            )         
     """)
+
+    # -----------------------------------------
+    # Cria tabela holidays
+    # -----------------------------------------
+
+    cursor.execute("""
+    CREATE TABLE holidays (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date DATETIME NOT NULL ,
+        type TEXT NOT NULL DEFAULT closed,  -- 'sunday' ou 'closed'   
+        description TEXT 
+    )
+    """)
+
 
     conn.commit()
     conn.close()
@@ -92,11 +126,14 @@ def setup_camera_data_db():
             valid = int(row[idx_valid])
 
             cursor.execute("""
-                INSERT INTO peopleflowtotals 
+                INSERT INTO peopleflowtotals    
                 (camera_id, created_at, total_inside, total_outside, valid)
                 VALUES (?, ?, ?, ?, ?)
             """, (camera_id, created_at, total_inside, total_outside, valid))
 
+    cursor.execute("UPDATE peopleflowtotals SET created_at = strftime('%Y-%m-%d %H:00:00', created_at)")
+    cursor.execute("UPDATE  peopleflowtotals  SET created_at = datetime(created_at, '+14 days')")
+    
     # Salva e fecha
     conn.commit()
     conn.close()
@@ -146,7 +183,7 @@ def setup_camera_data_db():
     # Insere no banco
     for camera_id, (location, last_ts) in camera_info.items():
         cursor.execute("""
-            INSERT INTO login_camera (id, location, pong_ts, pong_ts_last_fail)
+            INSERT INTO login_camera (id, entrance, pong_ts, pong_ts_last_fail)
             VALUES (?, ?, ?, NULL)
         """, (camera_id, location, last_ts.isoformat()))
 
@@ -155,6 +192,30 @@ def setup_camera_data_db():
     print("Import completed: data inserted into login_camera.")
     
  
+
+    # -----------------------------------------
+    # popula a tabela holidays
+    # -----------------------------------------
+
+
+    # Conecta ao banco
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+            INSERT INTO holidays ( date, type, description)
+            VALUES (?, ?, ?)
+        """, ('2025-12-25', 'closed', 'natal'))
+    cursor.execute("""
+            INSERT INTO holidays ( date, type, description)
+            VALUES (?, ?, ?)
+        """, ('2025-01-01', 'closed', 'ano novo'))
+    
+    conn.commit()
+    conn.close()
+    print("Import completed: data inserted into holidays.")
+
+
 if __name__ == "__main__":
     setup_camera_data_db()
     print("End of db setup script")

@@ -1,0 +1,198 @@
+2026-01-15 16:31:29,750 - INFO - ============================================================
+2026-01-15 16:31:29,751 - INFO - SISTEMA DE IMPUTAÇÃO DE DADOS DE CÂMERAS
+2026-01-15 16:31:29,751 - INFO - ============================================================
+2026-01-15 16:31:29,752 - INFO - Processando 1 pares cliente-localização
+2026-01-15 16:31:29,752 - INFO - 
+============================================================
+2026-01-15 16:31:29,752 - INFO - Processando 1/1: net3rcorp - teste
+2026-01-15 16:31:29,752 - INFO - ============================================================
+2026-01-15 16:31:29,753 - INFO - 
+============================================================
+2026-01-15 16:31:29,753 - INFO - Processando: net3rcorp - teste
+2026-01-15 16:31:29,753 - INFO - ============================================================
+2026-01-15 16:31:29,788 - INFO - Carregadas 6 câmeras para net3rcorp - teste
+2026-01-15 16:31:29,862 - INFO - Carregados 4236 registros de fluxo
+2026-01-15 16:31:29,862 - INFO - Período: 2025-11-16 a 2026-01-05 (51 dias)
+2026-01-15 16:31:29,863 - INFO - Registros válidos: 4236
+2026-01-15 16:31:29,864 - INFO - Último dia válido: 2026-01-05
+2026-01-15 16:31:29,865 - INFO - 
+Verificando câmeras em 2026-01-05
+2026-01-15 16:31:29,865 - INFO - Dia da semana: 0, Feriado: False
+2026-01-15 16:31:29,891 - WARNING -   Hora 10: BAIXO - 1194 < 1245.8
+2026-01-15 16:31:29,897 - WARNING -   Hora 12: BAIXO - 2892 < 2948.8
+2026-01-15 16:31:29,901 - WARNING -   Hora 13: BAIXO - 2767 < 2894.8
+2026-01-15 16:31:29,904 - WARNING -   Hora 14: BAIXO - 2366 < 2453.5
+2026-01-15 16:31:29,907 - WARNING -   Hora 15: BAIXO - 2376 < 2425.5
+2026-01-15 16:31:29,913 - WARNING -   Hora 16: BAIXO - 2231 < 2326.5
+2026-01-15 16:31:29,920 - WARNING -   Hora 18: BAIXO - 3606 < 3613.5
+2026-01-15 16:31:29,924 - WARNING -   Hora 19: BAIXO - 3628 < 3706.0
+2026-01-15 16:31:29,929 - WARNING -   Hora 20: BAIXO - 2551 < 2651.0
+2026-01-15 16:31:29,935 - WARNING -   Hora 22: BAIXO - 2604 < 2721.8
+2026-01-15 16:31:29,935 - INFO - Câmera 148782: 10 horas com falha
+2026-01-15 16:31:29,990 - WARNING -   Hora 13: BAIXO - 2072 < 2106.2
+2026-01-15 16:31:29,996 - WARNING -   Hora 14: BAIXO - 1789 < 1806.5
+2026-01-15 16:31:30,003 - WARNING -   Hora 16: BAIXO - 1797 < 1797.8
+2026-01-15 16:31:30,018 - INFO - Câmera 155310: 3 horas com falha
+2026-01-15 16:31:30,037 - WARNING -   Hora 14: BAIXO - 685 < 703.0
+2026-01-15 16:31:30,062 - INFO - Câmera 155325: 1 horas com falha
+2026-01-15 16:31:30,109 - WARNING -   Hora 09: BAIXO - 279 < 287.0
+2026-01-15 16:31:30,112 - WARNING -   Hora 10: BAIXO - 274 < 276.0
+2026-01-15 16:31:30,139 - INFO - Câmera 155681: 2 horas com falha
+2026-01-15 16:31:30,139 - INFO - 
+============================================================
+2026-01-15 16:31:30,139 - INFO - RESUMO: 4 câmeras com falha detectada
+2026-01-15 16:31:30,139 - INFO - ============================================================
+2026-01-15 16:31:30,142 - INFO -   Câmera 148782 (teste):
+2026-01-15 16:31:30,142 - INFO -     Horas ativas: 9-22
+2026-01-15 16:31:30,143 - INFO -     Horas com falha: [10, 12, 13, 14, 15, 16, 18, 19, 20, 22]
+2026-01-15 16:31:30,145 - INFO -   Câmera 155310 (teste):
+2026-01-15 16:31:30,146 - INFO -     Horas ativas: 9-22
+2026-01-15 16:31:30,146 - INFO -     Horas com falha: [13, 14, 16]
+2026-01-15 16:31:30,149 - INFO -   Câmera 155325 (teste):
+2026-01-15 16:31:30,149 - INFO -     Horas ativas: 9-22
+2026-01-15 16:31:30,149 - INFO -     Horas com falha: [14]
+2026-01-15 16:31:30,151 - INFO -   Câmera 155681 (teste):
+2026-01-15 16:31:30,151 - INFO -     Horas ativas: 9-22
+2026-01-15 16:31:30,151 - INFO -     Horas com falha: [9, 10]
+2026-01-15 16:31:30,152 - INFO - 
+Estimando dados para 2026-01-05...
+2026-01-15 16:31:30,153 - INFO - Câmeras funcionando: 2
+2026-01-15 16:31:30,153 - INFO - Câmeras com falha: 4
+2026-01-15 16:31:30,153 - INFO - 
+Processando Câmera 148782
+2026-01-15 16:31:30,154 - INFO - Horas a estimar: [10, 12, 13, 14, 15, 16, 18, 19, 20, 22]
+2026-01-15 16:31:30,332 - ERROR - Erro processando net3rcorp-teste: cannot access local variable 'final_total' where it is not associated with a value
+2026-01-15 16:31:30,525 - INFO - Resumo para net3rcorp - teste:
+2026-01-15 16:31:30,525 - INFO -   Câmeras: 6
+2026-01-15 16:31:30,525 - INFO -   Falhas: 4
+2026-01-15 16:31:30,525 - INFO -   Horas estimadas: 0
+2026-01-15 16:31:30,526 - INFO -   Inseridos: 0
+2026-01-15 16:31:30,526 - INFO -   Atualizados: 0
+2026-01-15 16:31:30,526 - INFO - 
+============================================================
+2026-01-15 16:31:30,526 - INFO - PROCESSAMENTO CONCLUÍDO
+2026-01-15 16:31:30,526 - INFO - ============================================================
+2026-01-15 16:31:30,527 - INFO - 
+Resumo Geral:
+2026-01-15 16:31:30,527 - INFO -   Clientes-localizações: 1
+2026-01-15 16:31:30,527 - INFO -   Processados com sucesso: 0
+2026-01-15 16:31:30,527 - INFO -   Câmeras carregadas: 6
+2026-01-15 16:31:30,528 - INFO -   Câmeras com falha: 4
+2026-01-15 16:31:30,528 - INFO -   Horas estimadas: 0
+2026-01-15 16:31:30,528 - INFO -   Registros inseridos: 0
+2026-01-15 16:31:30,528 - INFO -   Registros atualizados: 0
+2026-01-15 16:31:30,544 - INFO - Relatório salvo em imputation_report.csv
+2026-01-15 16:39:13,678 - INFO - ============================================================
+2026-01-15 16:39:13,679 - INFO - SISTEMA DE IMPUTAÇÃO DE DADOS DE CÂMERAS
+2026-01-15 16:39:13,679 - INFO - ============================================================
+2026-01-15 16:39:13,680 - INFO - Processando 1 pares cliente-localização
+2026-01-15 16:39:13,680 - INFO - 
+============================================================
+2026-01-15 16:39:13,680 - INFO - Processando 1/1: net3rcorp - teste
+2026-01-15 16:39:13,680 - INFO - ============================================================
+2026-01-15 16:39:13,681 - INFO - 
+============================================================
+2026-01-15 16:39:13,681 - INFO - Processando: net3rcorp - teste
+2026-01-15 16:39:13,681 - INFO - ============================================================
+2026-01-15 16:39:13,689 - INFO - Carregadas 6 câmeras para net3rcorp - teste
+2026-01-15 16:39:13,744 - INFO - Carregados 4236 registros de fluxo
+2026-01-15 16:39:13,744 - INFO - Período: 2025-11-16 a 2026-01-05 (51 dias)
+2026-01-15 16:39:13,744 - INFO - Registros válidos: 4236
+2026-01-15 16:39:13,746 - INFO - Último dia válido: 2026-01-05
+2026-01-15 16:39:13,747 - INFO - 
+Verificando câmeras em 2026-01-05 (dia 0)
+2026-01-15 16:39:14,041 - INFO - 
+============================================================
+2026-01-15 16:39:14,042 - INFO - RESUMO: 0 câmeras com falha detectada
+2026-01-15 16:39:14,042 - INFO - ============================================================
+2026-01-15 16:39:14,042 - INFO - Nenhuma falha detectada
+2026-01-15 16:39:14,053 - INFO - Resumo para net3rcorp - teste:
+2026-01-15 16:39:14,053 - INFO -   Câmeras: 6
+2026-01-15 16:39:14,054 - INFO -   Falhas: 0
+2026-01-15 16:39:14,054 - INFO -   Horas estimadas: 0
+2026-01-15 16:39:14,055 - INFO -   Inseridos: 0
+2026-01-15 16:39:14,055 - INFO -   Atualizados: 0
+2026-01-15 16:39:14,055 - INFO - 
+============================================================
+2026-01-15 16:39:14,055 - INFO - PROCESSAMENTO CONCLUÍDO
+2026-01-15 16:39:14,055 - INFO - ============================================================
+2026-01-15 16:39:14,070 - INFO - Relatório salvo em imputation_report.csv
+2026-01-15 16:39:14,071 - INFO - 
+Resumo Geral:
+2026-01-15 16:39:14,071 - INFO -   Clientes-localizações: 1
+2026-01-15 16:39:14,071 - INFO -   Processados com sucesso: 1
+2026-01-15 16:39:14,072 - INFO -   Câmeras carregadas: 6
+2026-01-15 16:39:14,072 - INFO -   Câmeras com falha: 0
+2026-01-15 16:39:14,072 - INFO -   Horas estimadas: 0
+2026-01-15 16:39:14,073 - INFO -   Registros inseridos: 0
+2026-01-15 16:39:14,073 - INFO -   Registros atualizados: 0
+2026-01-15 16:47:44,731 - INFO - ============================================================
+2026-01-15 16:47:44,733 - INFO - SISTEMA DE IMPUTAÇÃO DE DADOS DE CÂMERAS
+2026-01-15 16:47:44,733 - INFO - ============================================================
+2026-01-15 16:47:44,733 - INFO - Processando 1 pares cliente-localização
+2026-01-15 16:47:44,734 - INFO - 
+============================================================
+2026-01-15 16:47:44,734 - INFO - Processando 1/1: net3rcorp - teste
+2026-01-15 16:47:44,734 - INFO - ============================================================
+2026-01-15 16:47:44,735 - INFO - 
+============================================================
+2026-01-15 16:47:44,735 - INFO - Processando: net3rcorp - teste
+2026-01-15 16:47:44,735 - INFO - ============================================================
+2026-01-15 16:47:44,769 - INFO - Carregadas 6 câmeras para net3rcorp - teste
+2026-01-15 16:47:44,827 - INFO - Carregados 4233 registros de fluxo
+2026-01-15 16:47:44,827 - INFO - Período: 2025-11-16 a 2026-01-05 (51 dias)
+2026-01-15 16:47:44,827 - INFO - Registros válidos: 4233
+2026-01-15 16:47:44,829 - INFO - Último dia válido: 2026-01-05
+2026-01-15 16:47:44,829 - INFO - 
+Verificando câmeras em 2026-01-05 (dia 0)
+2026-01-15 16:47:44,890 - INFO - Câmera 148782: 1 horas com falha
+2026-01-15 16:47:44,936 - INFO - Câmera 155266: 1 horas com falha
+2026-01-15 16:47:45,032 - INFO - Câmera 155325: 1 horas com falha
+2026-01-15 16:47:45,118 - INFO - 
+============================================================
+2026-01-15 16:47:45,119 - INFO - RESUMO: 3 câmeras com falha detectada
+2026-01-15 16:47:45,119 - INFO - ============================================================
+2026-01-15 16:47:45,119 - INFO -   Câmera 148782: horas com falha [15]
+2026-01-15 16:47:45,119 - INFO -   Câmera 155266: horas com falha [15]
+2026-01-15 16:47:45,120 - INFO -   Câmera 155325: horas com falha [15]
+2026-01-15 16:47:45,120 - INFO - 
+Estimando dados para 2026-01-05...
+2026-01-15 16:47:45,121 - INFO - Câmeras funcionando: 3
+2026-01-15 16:47:45,121 - INFO - Câmeras com falha: 3
+2026-01-15 16:47:45,121 - INFO - 
+Processando Câmera 148782
+2026-01-15 16:47:45,122 - INFO -   Horas a estimar: [15]
+2026-01-15 16:47:45,136 - INFO -   Hora 15: estimado 1610/1074
+2026-01-15 16:47:45,136 - INFO - 
+Processando Câmera 155266
+2026-01-15 16:47:45,138 - INFO -   Horas a estimar: [15]
+2026-01-15 16:47:45,148 - INFO -   Hora 15: estimado 1318/879
+2026-01-15 16:47:45,148 - INFO - 
+Processando Câmera 155325
+2026-01-15 16:47:45,150 - INFO -   Horas a estimar: [15]
+2026-01-15 16:47:45,163 - INFO -   Hora 15: estimado 448/299
+2026-01-15 16:47:45,165 - INFO - 
+Total estimativas geradas: 3
+2026-01-15 16:47:45,166 - INFO - Inserindo 3 registros estimados...
+2026-01-15 16:47:45,181 - INFO - 
+Resumo inserção:
+2026-01-15 16:47:45,354 - INFO - Resumo para net3rcorp - teste:
+2026-01-15 16:47:45,355 - INFO -   Câmeras: 6
+2026-01-15 16:47:45,355 - INFO -   Falhas: 3
+2026-01-15 16:47:45,355 - INFO -   Horas estimadas: 3
+2026-01-15 16:47:45,355 - INFO -   Inseridos: 3
+2026-01-15 16:47:45,356 - INFO -   Atualizados: 0
+2026-01-15 16:47:45,356 - INFO - 
+============================================================
+2026-01-15 16:47:45,356 - INFO - PROCESSAMENTO CONCLUÍDO
+2026-01-15 16:47:45,356 - INFO - ============================================================
+2026-01-15 16:47:45,367 - INFO - Relatório salvo em imputation_report.csv
+2026-01-15 16:47:45,368 - INFO - 
+Resumo Geral:
+2026-01-15 16:47:45,368 - INFO -   Clientes-localizações: 1
+2026-01-15 16:47:45,369 - INFO -   Processados com sucesso: 1
+2026-01-15 16:47:45,369 - INFO -   Câmeras carregadas: 6
+2026-01-15 16:47:45,370 - INFO -   Câmeras com falha: 3
+2026-01-15 16:47:45,370 - INFO -   Horas estimadas: 3
+2026-01-15 16:47:45,370 - INFO -   Registros inseridos: 3
+2026-01-15 16:47:45,370 - INFO -   Registros atualizados: 0
