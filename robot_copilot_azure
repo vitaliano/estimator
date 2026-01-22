@@ -1,43 +1,15 @@
 """
 0 em AZURE leia client-location uniques em login_camera onde comments='c' (cameras a corrigir)
 1 para cada par client-location  
-    1-1 garantir que o db lqlite client-location-db 
+    1-1 se o db client-location.db nao existir, crie-o
+    1-2 atualizar peopleflowtotals.db com os dados mais recentes do sql server azure
+    1-3 encontre falhas de camera em peopleflowtotals.db(cameras com falhas de contagem) salve as falhas em uma lista
+    1-4 para cada falha de camera, encontre a correcao adequada - salve as correcoes em uma lista
+    1-5 encontre as falhas de contagem negativa e corrija interativamente( running sum ins< outs) salve as correcoes em uma lista
+    1-6 veja em  azure.allclients table o tipo de correcao desejado para este client-location (cameras ruins ou cameras ruins e negativos)
+    1-6 se cameras ruins apenas, aplique as correcao de cameras ruins
+    1-7 se cameras ruins e negativos, aplique as correcao de cameras
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-import pyodbc
-import pandas as pd
-import numpy as np
-import csv
-import os
-from datetime import datetime
-
-
-# ---------------------------------------------------------
-# 1. CONFIGURACAO DO SQL SERVER AZURE
-# ---------------------------------------------------------
-server = 'm4n1182kyd.database.windows.net'
-database = 'nodehub'
-username = 'nodehub-3rcorp'
-password = 'doutorCHAPATA@123'
-driver = '{ODBC Driver 17 for SQL Server}'  # Make sure this driver is installed
-
-conn = pyodbc.connect(
-    f'DRIVER={driver};SERVER={server};DATABASE={database};UID={username};PWD={password}'
-)
-cursor = conn.cursor()
 
 
 # ------------------------------
@@ -126,6 +98,126 @@ if __name__ == "__main__":
 
 
 """
+
+
+
+import pyodbc
+import pandas as pd
+import numpy as np
+import csv
+import os
+import re
+import sqlite3
+from datetime import datetime, timedelta
+
+
+# ---------------------------------------------------------
+# 1. CONFIGURACAO DO SQL SERVER AZURE
+# ---------------------------------------------------------
+server = 'm4n1182kyd.database.windows.net'
+database = 'nodehub'
+username = 'nodehub-3rcorp'
+password = 'doutorCHAPATA@123'
+driver = '{ODBC Driver 17 for SQL Server}'  # Make sure this driver is installed
+
+az_conn = pyodbc.connect(
+    f'DRIVER={driver};SERVER={server};DATABASE={database};UID={username};PWD={password}'
+)
+az_cursor = az_conn.cursor()
+
+
+
+# ---------------------------------------------------------
+# 2. SYNCHRONIZE  SQLITE LOCAL nodehub-client-server.db
+# ---------------------------------------------------------
+def synchro_sqlite_az(client,location,az_conn,az_cursor):
+    c_client= re.sub(r'[^A-Za-z0-9]', '', client)
+    c_location= re.sub(r'[^A-Za-z0-9]', '', location)
+    db_name=   f"{c_client}-{c_location}-peopleflowtotals.db"
+    
+    try:
+        li_conn = sqlite3.connect(db_name)
+        li_cursor = li_conn.cursor()
+
+        # 0. Find all cams for this client-location in azure db
+        az_cursor.execute(""" SELECT DISTINCT camera_id
+            FROM login_camera
+            WHERE client = ? AND location = ? AND comments = 'c'
+        """, (client, location))
+        cameras = [row[0] for row in az_cursor.fetchall()]
+
+        # 1. create peopleflowtotals table if not yet exists
+        li_cursor.execute("""
+        CREATE TABLE IF NOT EXISTS peopleflowtotals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at DATETIME,
+            camera_id INTEGER,
+            total_inside INTEGER,
+            total_outside INTEGER,
+            valid INTEGER
+        );
+        """)
+
+        # 2. Find the most recent record in sqlite db
+        li_cursor.execute("""
+            SELECT MAX(created_at) FROM peopleflowtotals
+        """)
+        max_created_at_li = li_cursor.fetchone()[0]
+
+        # 3. Find the most recent record in azure db
+        az_cursor.execute("""
+            SELECT MAX(created_at) FROM peopleflowtotals
+                WHERE camera_id IN ({','.join('?' * len(cameras))}) 
+                AND VALID=1
+                ORDER BY created_at ASC
+            """, cameras)
+        max_created_at_az = az_cursor.fetchone()[0]
+    
+        # 4. Find di  to import from azure
+        if max_created_at_li is None:
+            di = max_created_at_az - timedelta(days=100)
+        else: 
+            di = max_created_at_li + timedelta(days=1)
+
+        # 5. import from azure record when  dates more recent  than di
+        az_cursor.execute("""
+            SELECT *
+            FROM peopleflowtotals
+            WHERE camera_id IN ({','.join('?' * len(cameras))})
+            AND created_at > ?
+            ORDER BY created_at ASC
+        """, cameras,di)
+        rows = az_cursor.fetchall()
+
+        # 6. Insert those records at azure
+        for row in rows:
+            li_cursor.execute("""
+                INSERT OR REPLACE INTO peopleflowtotals 
+                (created_at,camera_id,total_inside,total_outside,valid)
+                VALUES (?, ?, ?, ?, ?)
+            """, (row.created_at, row.camera_id, row.total_inside, row.total_outside, row.valid))
+            
+        # 7. Select all records in local db to df_peopleflow
+        query="""
+            SELECT *
+            FROM peopleflowtotals
+            WHERE camera_id IN ({','.join('?' * len(cameras))})
+            ORDER BY created_at ASC
+        """)
+        df_peopleflowtotals=pd.read_sql_query(query, li_conn, params=(cameras))
+        li_conn.commit
+
+
+
+        return cameras,df_peopleflowtotals,max_created_at_az
+    
+    except:
+        return None
+
+
+
+
+
 
 
 
