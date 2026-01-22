@@ -27,9 +27,9 @@ def init_log():
                 "location",
                 "camera_id",
                 "created_at",
-                "fail_type",
-                "correction_type", # can be increase, decrease on ins or outs
-                "correction_method", # can be by proportion or by history
+                "fail_type", # can be min qty input, max_qty_output, max_qty_input, max_qty_output, rec absent, negative_total, excessive_total
+                "correction_type", # can be update, insert on ins or outs 
+                "correction_method", # can be by proportion or by history or by percentage (in case of negative or excessive)
                 "value_before_correction",
                 "value_after_correction",
             ])
@@ -69,29 +69,6 @@ def get_client_locations(conn):
 # ------------------------------
 
 
-def main():
-
-    init_log()
-    client_locations = get_client_locations(conn)
-    for client, location in client_locations:
-        failures=find_failures(conn, client, location)
-        corrections=find_corrections(conn, failures)
-        for correction in corrections:
-                apply_correction(conn, correction)
-                log_fail(
-                    client,
-                    location,
-                    correction['camera_id'],
-                    correction['created_at'],
-                    correction['fail_type'],
-                    correction['correction_type'],
-                    correction['correction_method'],
-                    correction['value_before_correction'],
-                    correction['value_after_correction'],
-                    correction['correction_date']
-                )
-        negative_test=get_non_negative_test(conn, client, locatio
-conn.close()
 
 if __name__ == "__main__":
     main()
@@ -114,23 +91,79 @@ from datetime import datetime, timedelta
 # ---------------------------------------------------------
 # 1. CONFIGURACAO DO SQL SERVER AZURE
 # ---------------------------------------------------------
+
 server = 'm4n1182kyd.database.windows.net'
 database = 'nodehub'
 username = 'nodehub-3rcorp'
 password = 'doutorCHAPATA@123'
 driver = '{ODBC Driver 17 for SQL Server}'  # Make sure this driver is installed
 
-az_conn = pyodbc.connect(
-    f'DRIVER={driver};SERVER={server};DATABASE={database};UID={username};PWD={password}'
-)
-az_cursor = az_conn.cursor()
+def get_client_location_list():
+    try:
+        az_conn = pyodbc.connect(
+            f'DRIVER={driver};SERVER={server};DATABASE={database};UID={username};PWD={password}'
+        )
+        az_cursor = az_conn.cursor()
+        client_locations=az_conn.execute("SELECT DISTINCT client, location FROM login_camera;").fetchall()
+        return az_conn, az_cursor, client_locations
+    except:
+        return None
+
+
+
+
+
+    
+
+# ---------------------------------------------------------
+# 2. LOGS HELPER
+# ---------------------------------------------------------
+LOGFILE = "camera_failure_and_correction_log.csv"
+def init_log():
+    if not os.path.exists(LOGFILE):
+        with open(LOGFILE, mode="w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "timestamp",
+                "client",
+                "location",
+                "camera_id",
+                "created_at",
+                "fail_type", # can be min qty input, max_qty_output, max_qty_input, max_qty_output, rec absent, negative_total, excessive_total
+                "correction_type", # can be update_ins, update_outs,insert_rec
+                "correction_method", # can be by proportion or by history or by percentage (in case of negative or excessive)
+                "input_before",
+                "input_after",
+                "output_before",
+                "output_after"
+            ])
+
+def register_log(client, location, cam_id, ts, fail_type, correction_type,
+                   correction_method, input_before, input_after,output_before,output_after):
+    """Append one imputation record to the log file."""
+    with open(LOGFILE, mode="a", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            datetime.now().isoformat(),
+            client,
+            location,
+            cam_id,
+            ts,
+            fail_type,
+            correction_type,
+            correction_method,
+            input_before,
+            input_after,
+            output_before,
+            output_after
+        ])
 
 
 
 # ---------------------------------------------------------
-# 2. SYNCHRONIZE  SQLITE LOCAL nodehub-client-server.db
+# 3. SYNCHRONIZE SQLITE LOCAL com AZURE AND GET DFs
 # ---------------------------------------------------------
-def synchro_sqlite_az(client,location,az_conn,az_cursor):
+def synchro_sqlite_az(client,location,az_cursor):
     c_client= re.sub(r'[^A-Za-z0-9]', '', client)
     c_location= re.sub(r'[^A-Za-z0-9]', '', location)
     db_name=   f"{c_client}-{c_location}-peopleflowtotals.db"
@@ -140,11 +173,15 @@ def synchro_sqlite_az(client,location,az_conn,az_cursor):
         li_cursor = li_conn.cursor()
 
         # 0. Find all cams for this client-location in azure db
-        az_cursor.execute(""" SELECT DISTINCT camera_id
+        query = """ 
+            SELECT DISTINCT camera_id
             FROM login_camera
             WHERE client = ? AND location = ? AND comments = 'c'
-        """, (client, location))
-        cameras = [row[0] for row in az_cursor.fetchall()]
+        """
+        df_login_cameras=pd.read_sql_query(query, li_conn,  params=[client, location])
+        camera_ids = df_login_cameras['id'].tolist()
+        camera_ids_str = ','.join(map(str, camera_ids))
+
 
         # 1. create peopleflowtotals table if not yet exists
         li_cursor.execute("""
@@ -167,10 +204,10 @@ def synchro_sqlite_az(client,location,az_conn,az_cursor):
         # 3. Find the most recent record in azure db
         az_cursor.execute("""
             SELECT MAX(created_at) FROM peopleflowtotals
-                WHERE camera_id IN ({','.join('?' * len(cameras))}) 
+                WHERE camera_id IN  ({camera_ids_str})
                 AND VALID=1
                 ORDER BY created_at ASC
-            """, cameras)
+            """)
         max_created_at_az = az_cursor.fetchone()[0]
     
         # 4. Find di  to import from azure
@@ -179,14 +216,14 @@ def synchro_sqlite_az(client,location,az_conn,az_cursor):
         else: 
             di = max_created_at_li + timedelta(days=1)
 
-        # 5. import from azure record when  dates more recent  than di
+        # 5. import from azure record when  dates more recent  than dist
         az_cursor.execute("""
             SELECT *
             FROM peopleflowtotals
-            WHERE camera_id IN ({','.join('?' * len(cameras))})
+            WHERE camera_id IN ({camera_ids_str})
             AND created_at > ?
             ORDER BY created_at ASC
-        """, cameras,di)
+        """, di)
         rows = az_cursor.fetchall()
 
         # 6. Insert those records at azure
@@ -201,25 +238,64 @@ def synchro_sqlite_az(client,location,az_conn,az_cursor):
         query="""
             SELECT *
             FROM peopleflowtotals
-            WHERE camera_id IN ({','.join('?' * len(cameras))})
+            WHERE camera_id IN ({?})
             ORDER BY created_at ASC
-        """)
-        df_peopleflowtotals=pd.read_sql_query(query, li_conn, params=(cameras))
+        """
+        df_peopleflowtotals=pd.read_sql_query(query, li_conn, params=(camera_ids_str))
         li_conn.commit
 
 
-
-        return cameras,df_peopleflowtotals,max_created_at_az
+        return li_conn, li_cursor,df_login_cameras,df_peopleflowtotals,camera_ids,max_created_at_az
     
     except:
         return None
 
 
 
+# ---------------------------------------------------------
+# 4. FIND FAILURES AND CORRECTION FROM BAD OR MISSED RECORDS
+# ---------------------------------------------------------
+
+def find_failures_bad_or_missing_records():
+    return []
+
+def find_corrections_bad_or_missing_records():
+    return []
+
+
+def find_and_correct_negative_and_excessive_totals():
+    return []
 
 
 
+# ---------------------------------------------------------
+# 5. APPLY CORRECTIONS TO AZURE
+# ---------------------------------------------------------
+
+def apply_corrections_to_azure():
+    return "OK"
 
 
 
+def main():
+
+    init_log()
+    az_conn, az_cursor, client_locations=get_client_location_list()
+
+    if client_locations==None:
+        print("Nenhum Cliente a processar")
+
+    for client,location in client_locations:
+        try:
+            li_conn, li_cursor,df_login_cameras,df_peopleflowtotals,camera_ids,max_created_at_az=synchro_sqlite_az(client,location,az_cursor):
+            failures_bad_or_missing_records=find_failures_bad_or_missing_records()
+            corrections_bad_or_missing_records=find_corrections_bad_or_missing_records()
+            correction_negative_or_excessive_totals=find_and_correct_negative_and_excessive_totals()
+            result=apply_corrections_to_azure()
+            li_cursor.close()
+            li_conn.close()
+        except:
+            print(f"Falha ao processar client {client} location {location}")
+    az_cursor.close()
+    az_conn.close()
 
