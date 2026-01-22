@@ -91,7 +91,6 @@ from datetime import datetime, timedelta
 # ---------------------------------------------------------
 # 1. CONFIGURACAO DO SQL SERVER AZURE
 # ---------------------------------------------------------
-
 server = 'm4n1182kyd.database.windows.net'
 database = 'nodehub'
 username = 'nodehub-3rcorp'
@@ -109,11 +108,6 @@ def get_client_location_list():
     except:
         return None
 
-
-
-
-
-    
 
 # ---------------------------------------------------------
 # 2. LOGS HELPER
@@ -157,7 +151,6 @@ def register_log(client, location, cam_id, ts, fail_type, correction_type,
             output_before,
             output_after
         ])
-
 
 
 # ---------------------------------------------------------
@@ -251,27 +244,22 @@ def synchro_sqlite_az(client,location,az_cursor):
         return None
 
 
-
 # ---------------------------------------------------------
 # 4. FIND FAILURES AND CORRECTION FROM BAD OR MISSED RECORDS
 # ---------------------------------------------------------
-
 def find_failures_bad_or_missing_records():
     return []
 
 def find_corrections_bad_or_missing_records():
     return []
 
-
 def find_and_correct_negative_and_excessive_totals():
     return []
-
 
 
 # ---------------------------------------------------------
 # 5. APPLY CORRECTIONS TO AZURE
 # ---------------------------------------------------------
-
 def apply_corrections_to_azure():
     return "OK"
 
@@ -287,11 +275,24 @@ def main():
 
     for client,location in client_locations:
         try:
-            li_conn, li_cursor,df_login_cameras,df_peopleflowtotals,camera_ids,max_created_at_az=synchro_sqlite_az(client,location,az_cursor):
+            li_conn, li_cursor,df_login_cameras,df_peopleflowtotals,camera_ids,max_created_at_az=synchro_sqlite_az(client,location,az_cursor)
+            print(df_login_cameras.head(10))
+            print(df_peopleflowtotals.head(10))
+            print(camera_ids)
+            print(max_created_at_az)
+            
             failures_bad_or_missing_records=find_failures_bad_or_missing_records()
+            print(failures_bad_or_missing_records)
+            
             corrections_bad_or_missing_records=find_corrections_bad_or_missing_records()
+            print(corrections_bad_or_missing_records)
+            
             correction_negative_or_excessive_totals=find_and_correct_negative_and_excessive_totals()
+            print(correction_negative_or_excessive_totals)
+            
             result=apply_corrections_to_azure()
+            print(result)
+            
             li_cursor.close()
             li_conn.close()
         except:

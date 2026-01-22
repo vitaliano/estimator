@@ -19,7 +19,7 @@ def simulate_data_arrive_late(camera_id,target_date, target_hour):
         conn = sqlite3.connect(db_path)
         cur = conn.cursor()
 
-        print(f"Simulating date arrive late for camera_id={camera_id} from date {date_sel} after hour={hour_sel}")
+        print(f"Simulating date arrive late for camera_id={camera_id} from date {target_date} after hour={target_hour}")
 
 
         # ---------------------------------------------------------
