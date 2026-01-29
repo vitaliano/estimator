@@ -1,0 +1,165 @@
+
+from typing import Tuple
+import pyodbc
+import pandas as pd
+import numpy as np
+import csv
+import os
+import re
+import sqlite3
+from datetime import datetime, timedelta
+
+
+# ---------------------------------------------------------
+# 1. CONFIGURACAO DO SQL SERVER AZURE
+# returns az_conn, az_cursor, client_locations
+# ---------------------------------------------------------
+server = 'm4n1182kyd.database.windows.net'
+database = 'nodehub'
+username = 'nodehub-3rcorp'
+password = 'doutorCHAPATA@123'
+driver = '{ODBC Driver 17 for SQL Server}'  # Make sure this driver is installed
+
+def get_client_location_list():
+    try:
+        az_conn = pyodbc.connect(
+            f'DRIVER={driver};SERVER={server};DATABASE={database};UID={username};PWD={password}'
+        )
+        az_cursor = az_conn.cursor()
+        client_locations=az_conn.execute("SELECT DISTINCT client, location FROM login_camera WHERE comments='c';").fetchall()
+        return az_conn, az_cursor, client_locations
+    except:
+        return None
+
+
+class ClientLocationProcessor:
+   # this class operates only at sqlite db. 
+   # It assumes sqlite db is filled with data t
+   # here is inly one sqlite db for each client location
+    def __init__(self, client, location):    
+        self.client = client
+        self.location = location
+        self.df_login_cameras = None
+        self.df_peopleflowtotals = None
+        self.df_holidays = None
+        self.corrections = None
+        self.db_name=None
+        
+
+    def load_login_cameras(self):
+        query = """ 
+            SELECT  *
+            FROM login_camera
+            WHERE client = ? AND location = ? AND comments = 'c'
+        """
+        return pd.read_sql_query(query, self.li_conn,  params=[self.client, self.location])
+
+    def load_peopleflowtotals(self,list_camera_ids): 
+        query=f"""
+            SELECT *
+            FROM peopleflowtotals
+            WHERE camera_id IN ({','.join(map(str, list_camera_ids))})
+            AND created_at >= DATE('now', '-60 days')
+            AND valid=1
+            ORDER BY created_at ASC
+        """
+        return pd.read_sql_query(query, self.li_conn, params=[])
+    
+    def load_holidays(self):
+        query="""
+            SELECT date FROM holidays
+        """
+        return pd.read_sql_query(query, self.li_conn,  params=[])
+    
+
+    def load_data(self):
+        # There is one sqlite db for each client location
+        # Load data from SQLite() into df_login_camera, df_peopleflowtotals, df_holidays
+        # other functions of this class works only with the data frame. (no sqlite connection)
+        self.db_name=f"{self.client}_{self.location}.db"
+        li_conn = sqlite3.connect(self.db_name)
+
+        self.df_login_cameras = self.load_login_cameras(li_conn)
+        list_camera_ids = self.df_login_cameras['Id'].tolist
+        self.df_peopleflowtotals = self.load_peopleflowtotals(li_conn,list_camera_ids)
+        self.df_holidays = self.load_holidays(li_conn) 
+
+    def get_expected_historical_values(self,camera_id,last_day,hour,is_holiday)
+        #from self df peopleflowtotals find the average, max and min values for this day, this hour 
+        #holidays have a different algorithm. only missing records will be corrected
+        
+        #for non holidays data 
+        return exp_ins,exp_outs,min_ins,min_outs,max_ins,max_outs,correction_method
+
+
+
+
+
+
+    def find_corrections_bad_or_missing_records(self) -> list:
+        weekday_columns = {
+        0: ('counting_hour_monday', 'counting_hour_monday_qtd'),    # Segunda-feira
+        1: ('counting_hour_tuesday', 'counting_hour_tuesday_qtd'),  # Terça-feira
+        2: ('counting_hour_wednesday', 'counting_hour_wednesday_qtd'),  # Quarta-feira
+        3: ('counting_hour_thursday', 'counting_hour_thursday_qtd'),    # Quinta-feira
+        4: ('counting_hour_fryday', 'counting_hour_fryday_qtd'),        # Sexta-feira
+        5: ('counting_hour_saturday', 'counting_hour_saturday_qtd'),    # Sábado
+        6: ('counting_hour_sunday', 'counting_hour_sunday_qtd'),  
+        }
+        last_day = self.df_peopleflowtotals['created_at'].max().date()
+        print(f"Last day in df_peopleflowtotals: {last_day}")
+        weekday=last_day.weekday()
+        working_columns=weekday_columns[weekday]
+
+        # find the expected hours work in this day from df_login_cameras and df_holidays
+        # if last_day is holiday, expected_hours will be empty else it is defined in holiday_table
+        is_holiday = last_day in pd.to_datetime(self.df_holidays['date']).dt.date.values
+        camera_failed_hours = {}
+        active_hours=[]
+        for idx, login_camera_row in self.df_login_cameras.iterrows():
+            camera_id=login_camera_row['Id']
+            if not is_holiday:
+                start_hour = login_camera_row[working_columns[0]]
+                end_hour = login_camera_row[working_columns[1]]
+            else:
+                start_hour=9
+                end_hour=23
+            active_hours = list(range(start_hour, end_hour + 1))
+            print(f"Working hoursthis camera {camera_id}  on {last_day}: {start_hour} to {end_hour}")
+            #all totals all hours this day, this camera
+            df_this_camera_hourly_totals = self.df_peopleflowtotals[
+                self.df_peopleflowtotals['camera_id'] == camera_id and
+                self.df_peopleflowtotals['created_at'].dt.date == last_day] 
+            for hour in active_hours:
+                exp_ins,exp_outs,min_ins,min_outs,max_ins,max_outs,correction_method=get_expected_historical_values(self,camera_id,last_day,hour,is_holiday)
+                if hour not in df_this_camera_hourly_totals['created_at'].dt.hour.values:
+                    failing_row = (camera_id, last_day, hour, 0,0,exp_ins,exp_outs,"missing_record",correction_method)
+                    print(f"missing: {failing_row}")
+                    camera_failed_hours.add(failing_row)
+                else: #this hour record is there
+                    df_this_camera_this_hour_totals = df_this_camera_hourly_totals[
+                        self.df_peopleflowtotals['created_at'].dt.hour == hour] 
+                    ins=df_this_camera_this_hour_totals["total_inside"]
+                    outs=df_this_camera_this_hour_totals["total_outside"]
+                    if ins<min_ins or ins>max_ins or outs<min_outs or outs>max_outs:
+                        failing_row = (camera_id, last_day, hour, ins,outs,exp_ins,exp_outs,"bad record",correction_method)
+                        print(f"bad record: {failing_row}")
+                        camera_failed_hours.add(failing_row)
+                    else:
+                    print(f"this camera: {camera_id} at hour {hour} is found OK")  
+        # the loop to found missing or bad records ends here.
+        # next try to improve the historical corrections on bad records using proportions        
+        # for calculate proportions, i have to have at least one good cam in this hour. 
+        # it means for each hour, the list of good cams is the ones not in camera_failing_hours
+        list_camera_ids = self.df_login_cameras['Id'].tolist
+        for hour in active_hours:
+            list_of_good_cams_for_this_hour=[]
+            for camera_id in list_camera_ids:
+                camera_id=login_camera_row['Id']
+                exists = any(
+                    row[0] == camera_id and row[1] == last_day and row[2] == hour
+                    for row in camera_failed_hours
+                )
+                if not exists:
+                    list_of_good_cams_for_this_hour.add(camera_id)
+            #at this point, list_of_camera_id for thhis hour is complete

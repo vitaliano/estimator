@@ -1,83 +1,5 @@
-"""
-0 em AZURE leia client-location uniques em login_camera onde comments='c' (cameras a corrigir)
-1 para cada par client-location  
-    1-1 se o db client-location.db nao existir, crie-o
-    1-2 atualizar peopleflowtotals.db com os dados mais recentes do sql server azure
-    1-3 encontre falhas de camera em peopleflowtotals.db(cameras com falhas de contagem) salve as falhas em uma lista
-    1-4 para cada falha de camera, encontre a correcao adequada - salve as correcoes em uma lista
-    1-5 encontre as falhas de contagem negativa e corrija interativamente( running sum ins< outs) salve as correcoes em uma lista
-    1-6 veja em  azure.allclients table o tipo de correcao desejado para este client-location (cameras ruins ou cameras ruins e negativos)
-    1-6 se cameras ruins apenas, aplique as correcao de cameras ruins
-    1-7 se cameras ruins e negativos, aplique as correcao de cameras
 
-
-
-# ------------------------------
-# 2. Logging Helpers
-# ------------------------------
-LOGFILE = "camera_failure_and_correction_log.csv"
-def init_log():
-   Initialize log file with headers if not present.
-    if not os.path.exists(LOGFILE):
-        with open(LOGFILE, mode="w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                "timestamp",
-                "client",
-                "location",
-                "camera_id",
-                "created_at",
-                "fail_type", # can be min qty input, max_qty_output, max_qty_input, max_qty_output, rec absent, negative_total, excessive_total
-                "correction_type", # can be update, insert on ins or outs 
-                "correction_method", # can be by proportion or by history or by percentage (in case of negative or excessive)
-                "value_before_correction",
-                "value_after_correction",
-            ])
-
-def log_fail(client, location, cam_id, ts, fail_type, correction_type,
-                   correction_method,value_before_coorection,value_after_correction,correction_date):
-    Append one imputation record to the log file
-    with open(LOGFILE, mode="a", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            datetime.now().isoformat(),
-            client,
-            location,
-            cam_id,
-            ts,
-            fail_type,
-            correction_type,
-            correction_method,
-            value_before_coorection,
-            value_after_correction,
-            correction_date
-        ])
-
-
-# ------------------------------
-# 3. Get Client_Location list
-# ------------------------------
-def get_client_locations(conn):
-    # o campo comments em login camera indica que esta camera deve ser corrigida
-    query="SELECT DISTINCT client, location FROM login_camera WHERE comments ='c' ;"
-    client_locations=conn.execute(query).fetchall()
-    return client_locations
-
-
-# ------------------------------
-# Main Processing
-# ------------------------------
-
-
-
-if __name__ == "__main__":
-    main()
-
-
-"""
-
-
-
+from typing import Tuple
 import pyodbc
 import pandas as pd
 import numpy as np
@@ -90,6 +12,7 @@ from datetime import datetime, timedelta
 
 # ---------------------------------------------------------
 # 1. CONFIGURACAO DO SQL SERVER AZURE
+# returns az_conn, az_cursor, client_locations
 # ---------------------------------------------------------
 server = 'm4n1182kyd.database.windows.net'
 database = 'nodehub'
@@ -103,7 +26,7 @@ def get_client_location_list():
             f'DRIVER={driver};SERVER={server};DATABASE={database};UID={username};PWD={password}'
         )
         az_cursor = az_conn.cursor()
-        client_locations=az_conn.execute("SELECT DISTINCT client, location FROM login_camera;").fetchall()
+        client_locations=az_conn.execute("SELECT DISTINCT client, location FROM login_camera WHERE comments='c';").fetchall()
         return az_conn, az_cursor, client_locations
     except:
         return None
@@ -154,29 +77,19 @@ def register_log(client, location, cam_id, ts, fail_type, correction_type,
 
 
 # ---------------------------------------------------------
-# 3. SYNCHRONIZE SQLITE LOCAL com AZURE AND GET DFs
+# 3. SYNCHRONIZE SQLITE LOCAL com AZURE AND GET DFs (last 100 days)
+#   returns li_conn, li_cursor,df_login_cameras,df_peopleflowtotals,camera_ids,max_created_at_az
 # ---------------------------------------------------------
-def synchro_sqlite_az(client,location,az_cursor):
-    c_client= re.sub(r'[^A-Za-z0-9]', '', client)
-    c_location= re.sub(r'[^A-Za-z0-9]', '', location)
+def synchro_sqlite_az(self):
+    c_client= re.sub(r'[^A-Za-z0-9]', '', self.client)
+    c_location= re.sub(r'[^A-Za-z0-9]', '', self.location)
     db_name=   f"{c_client}-{c_location}-peopleflowtotals.db"
     
     try:
+
+        # 0. create peopleflowtotals table if not yet exists
         li_conn = sqlite3.connect(db_name)
         li_cursor = li_conn.cursor()
-
-        # 0. Find all cams for this client-location in azure db
-        query = """ 
-            SELECT DISTINCT camera_id
-            FROM login_camera
-            WHERE client = ? AND location = ? AND comments = 'c'
-        """
-        df_login_cameras=pd.read_sql_query(query, li_conn,  params=[client, location])
-        camera_ids = df_login_cameras['id'].tolist()
-        camera_ids_str = ','.join(map(str, camera_ids))
-
-
-        # 1. create peopleflowtotals table if not yet exists
         li_cursor.execute("""
         CREATE TABLE IF NOT EXISTS peopleflowtotals (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -188,115 +101,390 @@ def synchro_sqlite_az(client,location,az_cursor):
         );
         """)
 
-        # 2. Find the most recent record in sqlite db
+        # 1. Find all cams for this client-location in azure db
+        query = """ 
+            SELECT  *
+            FROM login_camera
+            WHERE client = ? AND location = ? AND comments = 'c'
+        """
+        df_login_cameras=pd.read_sql_query(query, self.az_conn,  params=[client, location])
+        arr_camera_ids = df_login_cameras['Id'].tolist()
+        #camera_ids_str = ','.join(map(str, camera_ids))
+
+        # 2. Find the most recent record in azure db
+        self.az_cursor.execute("""
+            SELECT MAX(created_at) FROM peopleflowtotals
+            WHERE camera_id = ?
+            AND client= ? AND location= ?
+            AND VALID = 1
+        """,(cam_id_str,client,location))
+        max_created_at_az = self.az_cursor.fetchone()[0]
+
+        # 3. Find the most recent record in sqlite db
         li_cursor.execute("""
             SELECT MAX(created_at) FROM peopleflowtotals
         """)
         max_created_at_li = li_cursor.fetchone()[0]
 
-        # 3. Find the most recent record in azure db
-        az_cursor.execute("""
-            SELECT MAX(created_at) FROM peopleflowtotals
-                WHERE camera_id IN  ({camera_ids_str})
-                AND VALID=1
-                ORDER BY created_at ASC
-            """)
-        max_created_at_az = az_cursor.fetchone()[0]
-    
-        # 4. Find di  to import from azure
+        # 4. Find di  to import from azure 
         if max_created_at_li is None:
             di = max_created_at_az - timedelta(days=100)
         else: 
-            di = max_created_at_li + timedelta(days=1)
+            max_created_at_li = datetime.strptime(max_created_at_li, '%Y-%m-%d %H:%M:%S')       
+            di = max_created_at_li 
+        
+        # 5. find if max_created_at_az is holiday.
+        date_to_check = max_created_at_az.date()
+        self.az_cursor.execute("""
+            SELECT COUNT(*) FROM holidays
+            WHERE date = ?
+        """, ( date_to_check)) 
+        is_holiday = self.az_cursor.fetchone()[0] > 0
 
-        # 5. import from azure record when  dates more recent  than dist
-        az_cursor.execute("""
-            SELECT *
-            FROM peopleflowtotals
-            WHERE camera_id IN ({camera_ids_str})
-            AND created_at > ?
-            ORDER BY created_at ASC
-        """, di)
-        rows = az_cursor.fetchall()
-
-        # 6. Insert those records at azure
-        for row in rows:
-            li_cursor.execute("""
-                INSERT OR REPLACE INTO peopleflowtotals 
-                (created_at,camera_id,total_inside,total_outside,valid)
-                VALUES (?, ?, ?, ?, ?)
-            """, (row.created_at, row.camera_id, row.total_inside, row.total_outside, row.valid))
-            
-        # 7. Select all records in local db to df_peopleflow
+        # 6. get all holidays dates list
         query="""
+            SELECT date FROM holidays
+            WHERE date <> ?
+        """
+        df_holidays=pd.read_sql_query(query, self.az_conn,  params=[date_to_check])
+        arr_holidays_dates = df_holidays['date'].tolist()
+
+        # 7. For each cam, insert at local db all records from the last record in local db to the most recent in azure db
+        for cam_id in arr_camera_ids:
+            cam_id_str=str(cam_id)
+
+            # 7.1 import from azure record when  dates more recent  than di  
+            self.az_cursor.execute("""
+                SELECT *
+                FROM peopleflowtotals
+                WHERE camera_id = ?
+                AND created_at BETWEEN ? AND ?
+                ORDER BY created_at ASC
+            """,(cam_id_str, di, max_created_at_az))
+            rows = self.az_cursor.fetchall()
+
+            # 7.2 Insert those records from azure to local db
+            for row in rows:
+                li_cursor.execute("""
+                    INSERT OR REPLACE INTO peopleflowtotals 
+                    (created_at,camera_id,total_inside,total_outside,valid)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (row.created_at, row.camera_id, row.total_inside, row.total_outside, row.valid))
+
+        # 8. Select all records in local db to df_peopleflow
+        query=f"""
             SELECT *
             FROM peopleflowtotals
-            WHERE camera_id IN ({?})
             ORDER BY created_at ASC
         """
-        df_peopleflowtotals=pd.read_sql_query(query, li_conn, params=(camera_ids_str))
-        li_conn.commit
+        df_peopleflowtotals=pd.read_sql_query(query, li_conn, params=[])
+        li_conn.commit()
 
-
-        return li_conn, li_cursor,df_login_cameras,df_peopleflowtotals,camera_ids,max_created_at_az
+        return li_conn, li_cursor,df_login_cameras,df_peopleflowtotals,arr_camera_ids,max_created_at_az,is_holiday,arr_holidays_dates
     
-    except:
+    except Exception as e:
+        print(e)    
         return None
 
+def synchro_sqlite_test():
+    db_name="nodehub.db"
+    
+    try:
+        #process the data from nodehub.db local database without azure for test purposes]]
+        li_conn = sqlite3.connect(db_name)
+        li_cursor = li_conn.cursor()
+        
+        # 1. Find all cams
+        query = """ 
+            SELECT  * FROM login_camera
+        """
+        df_login_cameras=pd.read_sql_query(query, li_conn,  params=[])
+        arr_camera_ids = df_login_cameras['id'].tolist()
+
+        # 2. Find the most recent record in azure db
+        max_created_at_az= None
+        # 3. Find the most recent record in sqlite db
+        li_cursor.execute("""
+            SELECT MAX(created_at)  FROM peopleflowtotals
+            """)
+        max_created_at_li = li_cursor.fetchone()[0]
+        max_created_at_az = max_created_at_li
+    
+        # 4. Find di  to import from azure 
+        di = None # nao vamos importar
+
+        # 5. find if max_created_at_az is holiday.
+        date_to_check = max_created_at_az.split(" ")[0]
+        li_cursor.execute("""
+            SELECT COUNT(*) FROM holidays
+            WHERE date = ?
+        """,  [date_to_check] )
+        is_holiday = li_cursor.fetchone()[0] > 0
+        
+        # 6. get all holidays dates list
+        query="""
+            SELECT date FROM holidays
+            WHERE date <> ?
+        """
+        df_holidays=pd.read_sql_query(query, li_conn,  params=[date_to_check])
+        arr_holidays_dates = df_holidays['date'].tolist()
+
+        # 7. For each cam, insert at local db all records from the last record in local db to the most recent in azure db
+        rows=None
+
+        # 8. Select all records in local db to df_peopleflow
+        query=f"""
+            SELECT *
+            FROM peopleflowtotals 
+            WHERE valid=1
+            ORDER BY created_at ASC
+        """
+        df_peopleflowtotals=pd.read_sql_query(query, li_conn, params=[])
+        li_conn.commit()
+
+        return li_conn, li_cursor,df_login_cameras,df_peopleflowtotals,arr_camera_ids,max_created_at_az,is_holiday,arr_holidays_dates
+        
+    except Exception as e:
+        print(e)    
+        return None
 
 # ---------------------------------------------------------
 # 4. FIND FAILURES AND CORRECTION FROM BAD OR MISSED RECORDS
+# # returns failures_bad_or_missing_records
 # ---------------------------------------------------------
-def find_failures_bad_or_missing_records():
-    return []
+def get_camera_active_hours(self, cam_id: int) -> Tuple[int, int]:
+        """
+        Obtém intervalo de horas ativas para uma câmera específica e dia da semana.
+        
+        Args:
+            camera_id: ID da câmera
+            weekday: Dia da semana (0=Segunda, 6=Domingo)
+            
+        Returns:
+            se for holidays retorna 0,23
+            Tupla de (hora_inicio, hora_fim)
+        """
+        if cam_id not in self.cameras_df['id'].values:
+            return (0, 23)  # Padrão para todas as horas se câmera não encontrada
+ 
+        camera_row = self.df_login_cameras[self.cameras_df['id'] == cam_id].iloc[0]
 
-def find_corrections_bad_or_missing_records():
-    return []
+        # which weekday is max_created_at_az
+        weekday =self. max_created_at_az.weekday()
+        
+        if weekday in self.weekday_columns and not self.is_holiday:
+            start_col, end_col = self.weekday_columns[weekday]
+            start_hour = camera_row[start_col]
+            end_hour = camera_row[end_col]
+            return(start_hour, end_hour)
+        else:
+            return (0, 23)  # Padrão para todas as horas
 
-def find_and_correct_negative_and_excessive_totals():
+def get_camera_expected_value_historical(self, hour, cam_id:int)  -> Tuple[int,int]:
+    weekday=self.max_created_at_az.weekday()
+    today = self.max_created_at_az.date()
+
+    # filtro
+    df_sameweekday = self.df_peopleflowtotals[
+        (self.df_peopleflowtotals['created_at'].dt.hour == hour) &
+        (self.df_peopleflowtotals['camera_id'] == cam_id) &
+        (self.df_peopleflowtotals['created_at'].dt.weekday == weekday) &
+        (self.df_peopleflowtotals['created_at'].dt.date != today)
+        (self.df_peopleflowtotals['created_at'].dt.date not in self.arr_holidays_dates)
+    ]
+
+    media_inside = df_sameweekday['total_inside'].mean()
+    media_outside = df_sameweekday['total_outside'].mean() 
+    return (int(media_inside), int(media_outside))    
+
+def get_camera_expected_proportional(self, record,good_cams_list):
+    # da lista de cameras boas , neste weekday, nesta hora menos hoje, na historia quanto é a soma dos ins (ins_good_Cams_total)
+    # da lista de cameras boas , neste weekday, nesta hora menos hoje, na historia quanto é a soma dos outs  (outs_good_Cams_total)
+    # nesta camera na historia , neste weekday, nesta hora menos hoje, quanto é a soma dos ins (ins_this_camera_total)  
+    # nesta camera na historia , neste weekday, nesta hora menos hoje, quanto é a soma dos outs (outs_this_camera_total)
+    # da lista de cameras boas ,nesta hora hoje quanto é a soma dos ins (ins_good_Cams_today
+    # da lista de cameras boas , nesta hora hoje quanto é a soma dos outs (outs_good_Cams_today)
+    # nesta camera nesta hora hoje quanto é o ins   ins_this_cams_today=ins_good_cams_today)*ins_this_camera_total/ins_good_Cams_total
+    # nesta camera nesta hora hoje quanto é o outs  outs_this_cams_today=outs_good_cams_today)*outs_this_camera_total/outs_good_Cams_total
+    cam_id=record[0]
+    created_at=record[1] 
+    today= created_at.date()
+    weekday=created_at.weekday()
+    hour=record[2]
+
+    if not self.is_holiday: #proportions are by hour and weekday to be more precise.
+        df_filtered_good_cams = self.df_peopleflowtotals[ #records of goodcams list at the same weekday  and the same hous menos hoje
+                (self.df_peopleflowtotals['created_at'].dt.hour == hour) &
+                (self.df_peopleflowtotals['camera_id'].isin(good_cams_list)) &
+                (self.df_peopleflowtotals['created_at'].dt.weekday == weekday) &
+                (self.df_peopleflowtotals['created_at'].dt.date != today) &
+                (self.df_peopleflowtotals['created_at'].dt.date not in self.arr_holidays_dates)
+            ]
+        df_filtered_this_cam = self.df_peopleflowtotals[ #records of this cam at the same weekday  and the same hous menos hoje
+                (self.df_peopleflowtotals['created_at'].dt.hour == hour) &
+                (self.df_peopleflowtotals['camera_id']==cam_id) &
+                (self.df_peopleflowtotals['created_at'].dt.weekday == weekday) &
+                (self.df_peopleflowtotals['created_at'].dt.date != today) &
+                (self.df_peopleflowtotals['created_at'].dt.date not in self.arr_holidays_dates)
+            ] 
+    else: #holidays uses the proportions complete in the db
+        df_filtered_good_cams = self.df_peopleflowtotals[ #records of goodcams list at the same hous menos hoje
+                (self.df_peopleflowtotals['camera_id'].isin(good_cams_list)) &
+                (self.df_peopleflowtotals['created_at'].dt.date != today) &
+                (self.df_peopleflowtotals['created_at'].dt.date not in self.arr_holidays_dates)
+            ]
+        df_filtered_this_cam = self.df_peopleflowtotals[ #records of this cam at the same hous menos hoje
+                (self.df_peopleflowtotals['camera_id']==cam_id) &
+                (self.df_peopleflowtotals['created_at'].dt.date != today) &
+                (self.df_peopleflowtotals['created_at'].dt.date not in self.arr_holidays_dates)
+            ] 
+        
+    df_filtered_good_cams_today = self.df_peopleflowtotals[ #records of goodcams today  and the same hous menos hoje
+        (self.df_peopleflowtotals['created_at'].dt.hour == hour) &
+        (self.df_peopleflowtotals['camera_id'].isin(good_cams_list)) &
+        (self.df_peopleflowtotals['created_at'].dt.date == today)
+        ]
+    
+    ins_good_Cams_total = df_filtered_good_cams['total_inside'].sum()
+    outs_good_Cams_total = df_filtered_good_cams['total_outside'].sum()
+    ins_this_cam_totals= df_filtered_this_cam['total_inside'].sum()
+    outs_this_cam_totals= df_filtered_this_cam['total_outside'].sum()
+    ins_good_Cams_today = df_filtered_good_cams_today['total_inside'].sum()
+    outs_good_Cams_today = df_filtered_good_cams_today['total_outside'].sum
+    if ins_good_Cams_total==0 or outs_good_Cams_total==0:
+        return (None,None)
+    proportion_ins= (ins_good_Cams_today*ins_this_cam_totals)/ins_good_Cams_total
+    proportion_outs= (outs_good_Cams_today*outs_this_cam_totals)/outs_good_Cams_total
+    return (proportion_ins,proportion_outs)
+
+def find_corrections_bad_or_missing_records(self):
+    try:
+    # Find failures in df_peopleflowtotals, using parameters in df_login_camera
+    # 1. search in last day huurs intervals where countings were expected but are not present
+        good_cams_list=[]
+        for cam_id in self.arr_camera_ids:
+            (start_hour, end_hour) = self.get_camera_active_hours(self,cam_id)
+            print(f"CAMEREA: {cam_id} PERIOD: {start_hour} to {end_hour}")
+            active_hours = list(range(start_hour, end_hour + 1))
+            camera_failed_hours = []
+            for hour in active_hours:
+                df_filtered = self.df_peopleflowtotals[
+                    self.df_peopleflowtotals['created_at'].dt.date==self.max_created_at_az.dt.date and 
+                    self.df_peopleflowtotals['created_at'].dt.hour == hour and 
+                    self.df_peopleflowtotals['camera_id']==cam_id]                                                  
+                
+                ins_exp,outs_exp = get_camera_expected_value_historical(self,cam_id, hour )
+                if df_filtered.empty:
+                    if self.is_holiday:
+                        correction_type="by historical holiday"
+                    else:
+                        correction_type="by historical"
+                    camera_failed_hours=camera_failed_hours.append((cam_id,self.max_created_at_az,hour,ins_exp,outs_exp,0,0,"missing_record", correction_type))
+                else:
+                    ins_act=df_filtered['total_inside'].values[0]
+                    outs_act=df_filtered['total_outside'].values[0]               
+                    if ins_act<ins_exp*0.5 or outs_act<outs_exp*0.5:
+                        camera_failed_hours=camera_failed_hours.append((cam_id,self.max_created_at_az,hour,ins_exp,outs_exp,ins_act,outs_act,"bad_record", correction_type))
+                    else:
+                        good_cams_list.append(cam_id)
+
+        #giving a try to improve the data by using proportions
+        #find totals of all cams in this weekday camera_id and hour
+        for idx, record in camera_failed_hours:
+            if good_cams_list==[]:
+                continue
+            proportion_ins,proportion_outs=get_camera_expected_proportional(self,record,good_cams_list) 
+            if proportion_ins==None or proportion_outs==None:
+                continue
+            else:
+                if self.is_holiday:
+                    correction_type="by proportion holidays"
+                else:
+                    correction_type="by proportion"
+                new_ins=int(proportion_ins)
+                new_outs=int(proportion_outs)
+                new_record=(record[0],record[1] ,new_ins,new_outs,record[4],record[5],record[6],correction_type)
+                camera_failed_hours[idx]=new_record
+            
+        return camera_failed_hours
+    except Exception as e:
+        print(e)    
+        return []
+    
+
+
+# 5. FIND AND CORRECT NEGATIVES HOUR TOTALS
+# # returns list of corrections
+# ---------------------------------------------------------
+def find_corrections_negative_and_excessive_totals():
     return []
 
 
 # ---------------------------------------------------------
-# 5. APPLY CORRECTIONS TO AZURE
+# 6. CREATE FORECASTS
+# ---------------------------------------------------------
+def create_forecasts():
+    return "OK"
+
+
+# ---------------------------------------------------------
+# 6. APPLY CORRECTIONS TO AZURE
 # ---------------------------------------------------------
 def apply_corrections_to_azure():
     return "OK"
 
 
 
-def main():
+# ------------------------------
+# Main Processing
+# ------------------------------
+if __name__ == "__main__":
 
     init_log()
-    az_conn, az_cursor, client_locations=get_client_location_list()
-
+    #az_conn, az_cursor, client_locations=get_client_location_list()
+    client_locations=[('3rcorp','test')]
     if client_locations==None:
         print("Nenhum Cliente a processar")
+    #map weekday to columns in df_login_cameras
+    weekday_columns = {
+    0: ('counting_hour_monday', 'counting_hour_monday_qtd'),    # Segunda-feira
+    1: ('counting_hour_tuesday', 'counting_hour_tuesday_qtd'),  # Terça-feira
+    2: ('counting_hour_wednesday', 'counting_hour_wednesday_qtd'),  # Quarta-feira
+    3: ('counting_hour_thursday', 'counting_hour_thursday_qtd'),    # Quinta-feira
+    4: ('counting_hour_fryday', 'counting_hour_fryday_qtd'),        # Sexta-feira
+    5: ('counting_hour_saturday', 'counting_hour_saturday_qtd'),    # Sábado
+    6: ('counting_hour_sunday', 'counting_hour_sunday_qtd'),  
+    }
 
     for client,location in client_locations:
         try:
-            li_conn, li_cursor,df_login_cameras,df_peopleflowtotals,camera_ids,max_created_at_az=synchro_sqlite_az(client,location,az_cursor)
+            li_conn, li_cursor,df_login_cameras,df_peopleflowtotals,arr_camera_ids,max_created_at_az,is_holiday,arr_holidays_dates=synchro_sqlite_test()
+            # li_conn, li_cursor,df_login_cameras,df_peopleflowtotals,camera_ids,max_created_at_az,is_holiday=synchro_sqlite_az(client,location,az_cursor)
             print(df_login_cameras.head(10))
             print(df_peopleflowtotals.head(10))
-            print(camera_ids)
+            print(arr_camera_ids)
             print(max_created_at_az)
-            
-            failures_bad_or_missing_records=find_failures_bad_or_missing_records()
-            print(failures_bad_or_missing_records)
-            
+            print(is_holiday)
+            print(arr_holidays_dates)
+           
+        
             corrections_bad_or_missing_records=find_corrections_bad_or_missing_records()
             print(corrections_bad_or_missing_records)
             
-            correction_negative_or_excessive_totals=find_and_correct_negative_and_excessive_totals()
+            correction_negative_or_excessive_totals=find_corrections_negative_and_excessive_totals()
             print(correction_negative_or_excessive_totals)
             
-            result=apply_corrections_to_azure()
+            result=create_forecasts()
             print(result)
+            
+            result=apply_corrections_to_azure()
+            print(result)      
             
             li_cursor.close()
             li_conn.close()
-        except:
+        except Exception as e:
+            print(e)    
             print(f"Falha ao processar client {client} location {location}")
-    az_cursor.close()
-    az_conn.close()
+            continue
+
 
