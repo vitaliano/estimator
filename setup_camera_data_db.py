@@ -45,7 +45,7 @@ def setup_camera_data_db():
 
     cursor.execute("""
     CREATE TABLE login_camera (
-            id INTEGER, 
+            Id INTEGER, 
             client TEXT NOT NULL DEFAULT net3rcorp, 
             location TEXT NOT NULL DEFAULT teste, 
             entrance TEXT, 
@@ -183,7 +183,7 @@ def setup_camera_data_db():
     # Insere no banco
     for camera_id, (location, last_ts) in camera_info.items():
         cursor.execute("""
-            INSERT INTO login_camera (id, entrance, pong_ts, pong_ts_last_fail)
+            INSERT INTO login_camera (Id, entrance, pong_ts, pong_ts_last_fail)
             VALUES (?, ?, ?, NULL)
         """, (camera_id, location, last_ts.isoformat()))
 

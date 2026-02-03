@@ -3,10 +3,12 @@ from typing import Tuple
 import pyodbc
 import pandas as pd
 import numpy as np
+import random
 import csv
 import os
 import re
 import sqlite3
+import shutil
 from datetime import datetime, timedelta
 
 
@@ -20,22 +22,46 @@ username = 'nodehub-3rcorp'
 password = 'doutorCHAPATA@123'
 driver = '{ODBC Driver 17 for SQL Server}'  # Make sure this driver is installed
 
-def get_client_location_list():
+def get_client_location_list_from_azure():
     try:
         az_conn = pyodbc.connect(
             f'DRIVER={driver};SERVER={server};DATABASE={database};UID={username};PWD={password}'
         )
         az_cursor = az_conn.cursor()
         client_locations=az_conn.execute("SELECT DISTINCT client, location FROM login_camera WHERE comments='c';").fetchall()
-        return az_conn, az_cursor, client_locations
+        
+        return az_conn, az_cursor,client_locations
     except:
         return None
 
 
+
+
 class ClientLocationProcessor:
-   # this class operates only at sqlite db. 
-   # It assumes sqlite db is filled with data t
-   # here is inly one sqlite db for each client location
+    # this class works for tests in the nodehub.db
+    # which is filled with data from ficticious client_location 3rcorp-test
+    # for tests, the load_data_test function must be called to load 
+    # df_login_camera, df_peopleflowtotals, df_holidays 
+
+    # for production, data are gathered from azure
+    # the function load_data_azure(client_location0
+    # fills  df_login_camera, df_peopleflowtotals, df_holidays
+    # for a client_location in azure.
+
+    # find_correction function  works only with them dataframes. 
+    # (no sqlite connection) it works for tests and for production
+    # it produces the df_all_failures containning 
+    # the list of failures and corrections to be applied in the database,
+
+    #the function apply_corrections_test uses the df_list_all_failures
+    #to modify the table peopleflowtotals at sqlite nodehub.db
+    
+    #the function apply_Corrections_azure uses the df_all_failures
+    #to modify the table peopleflowtotals at azure db nodehub
+
+    # both the apply_correction functions works only in the table peopleflowtotals 
+    # (the cameras and dates to be modified are presented in the df_all_failures)
+
     def __init__(self, client, location):    
         self.client = client
         self.location = location
@@ -44,94 +70,298 @@ class ClientLocationProcessor:
         self.df_holidays = None
         self.corrections = None
         self.db_name=None
+        self.df_all_failures=None
+
+
+   
+    # loads self dataframes from sqlite nodehub_test db
+    # df_login_camera, df_peopleflowtotals and df_holidays
+    # to the instance of the object   
+    def load_data_nodehub_test(self,type_of_error):
+  
+        def get_active_hours(self,last_day,camera_id):
+            weekday_columns={
+                0: ('counting_hour_monday', 'counting_hour_monday_qtd'),    # Segunda-feira
+                1: ('counting_hour_tuesday', 'counting_hour_tuesday_qtd'),  # Terça-feira
+                2: ('counting_hour_wednesday', 'counting_hour_wednesday_qtd'),  # Quarta-feira
+                3: ('counting_hour_thursday', 'counting_hour_thursday_qtd'),    # Quinta-feira
+                4: ('counting_hour_fryday', 'counting_hour_fryday_qtd'),        # Sexta-feira
+                5: ('counting_hour_saturday', 'counting_hour_saturday_qtd'),    # Sábado
+                6: ('counting_hour_sunday', 'counting_hour_sunday_qtd'),  
+            }
+            weekday=last_day.weekday()
+            working_columns=weekday_columns[weekday]
+            login_camera_row = self.df_login_cameras.loc[self.df_login_cameras['Id'] == camera_id].iloc[0]
+            start_hour = login_camera_row[working_columns[0]]
+            end_hour = login_camera_row[working_columns[1]]
+            return start_hour, end_hour
+
+        def load_login_cameras(li_conn,client,location):
+            query = """ 
+                SELECT  *
+                FROM login_camera
+                WHERE client = ? AND location = ?
+            """
+            return pd.read_sql_query(query, li_conn,  params=[client,location])
+
+        def load_peopleflowtotals(li_conn): 
+            query="SELECT * FROM peopleflowtotals ORDER BY created_at DESC"
+            return pd.read_sql_query(query, li_conn, params=[])
         
+        def load_holidays(li_conn):
+            query="""
+                SELECT * FROM holidays
+            """
+            return pd.read_sql_query(query, li_conn,  params=[])
+        
+        def prep_errors_step1(self,li_conn,list_camera_ids):
+            # chose randomly one camera
+            camera_id=random.choice(list_camera_ids)
+            # find max created_at of peopleflowtotals at that camera
+            li_cursor=li_conn.cursor()
+            query=f"""SELECT MAX(created_at) AS max
+                FROM peopleflowtotals
+                WHERE camera_id = ?  
+                AND valid=1
+            """
+            li_cursor.execute(query,(camera_id,))
+            max_date=li_cursor.fetchone()[0]
+            last_day_str=max_date.split(" ")[0]
+            #get the hours this camera works on this weekday
+            last_day = datetime.strptime(last_day_str, "%Y-%m-%d")  
+            start_hour, end_hour=get_active_hours(self,last_day,camera_id)
+            li_cursor.close()
+            return camera_id,last_day_str,start_hour,end_hour
 
-    def load_login_cameras(self):
-        query = """ 
-            SELECT  *
-            FROM login_camera
-            WHERE client = ? AND location = ? AND comments = 'c'
-        """
-        return pd.read_sql_query(query, self.li_conn,  params=[self.client, self.location])
+        def prep_errors_step2(self,li_conn,camera_id_str,last_day_str,hour1_str,hour2_str):
+            try:
+                li_cursor=li_conn.cursor()
+                #este teste elimina 2 registros
+                query=f"""SELECT * FROM peopleflowtotals WHERE 
+                DATE(created_at) = '{last_day_str}' AND 
+                ( strftime('%H', created_at)  = '{hour1_str}'  
+                OR strftime('%H', created_at)  = '{hour2_str}') 
+                AND camera_id = {camera_id_str};"""
+                li_cursor.execute(query,([]))
+                rows = li_cursor.fetchall()
+                print("os registros listados serao eliminados do DB")
+                for row in rows:
+                    print(row)
+                #eliminação dos registros
+                query=f"""DELETE FROM peopleflowtotals WHERE 
+                DATE(created_at) = '{last_day_str}' AND 
+                ( strftime('%H', created_at)  = '{hour1_str}'  
+                OR strftime('%H', created_at)  = '{hour2_str}') 
+                AND camera_id = {camera_id_str};"""
+                li_cursor.execute(query ,([]))
+                li_conn.commit()
+                print("Registros listados eliminados")
+                return "OK"
+            except:
+                print("Erro no sql")
+                return "NOK"
 
-    def load_peopleflowtotals(self,list_camera_ids): 
-        query=f"""
-            SELECT *
-            FROM peopleflowtotals
-            WHERE camera_id IN ({','.join(map(str, list_camera_ids))})
-            AND created_at >= DATE('now', '-60 days')
-            AND valid=1
-            ORDER BY created_at ASC
-        """
-        return pd.read_sql_query(query, self.li_conn, params=[])
-    
-    def load_holidays(self):
-        query="""
-            SELECT date FROM holidays
-        """
-        return pd.read_sql_query(query, self.li_conn,  params=[])
-    
-
-    def load_data(self):
-        # There is one sqlite db for each client location
-        # Load data from SQLite() into df_login_camera, df_peopleflowtotals, df_holidays
-        # other functions of this class works only with the data frame. (no sqlite connection)
-        self.db_name=f"{self.client}_{self.location}.db"
+    #---Load_data nodehub test code--------------------------------------------------------
+        
+        #RESTAURO DO DB DE TESTE A PARTIR DO NODEHUB
+        source_file = "nodehub.db"
+        destination_file = "nodehub_test.db"
+        shutil.copy2(source_file, destination_file)
+        client=self.client
+        location=self.location
+        self.db_name="nodehub_test.db"
+        print(f"client:{client} - location:{location}")
+        print(f"DB SQLITE TEST: {self.db_name}")
         li_conn = sqlite3.connect(self.db_name)
-
-        self.df_login_cameras = self.load_login_cameras(li_conn)
-        list_camera_ids = self.df_login_cameras['Id'].tolist
-        self.df_peopleflowtotals = self.load_peopleflowtotals(li_conn,list_camera_ids)
-        self.df_holidays = self.load_holidays(li_conn) 
-
-    def get_expected_historical_values(self,camera_id,last_day,hour,is_holiday)
-        #from self df peopleflowtotals find the average, max and min values for this day, this hour 
-        #holidays have a different algorithm. only missing records will be corrected
         
-        #for non holidays data 
-        return exp_ins,exp_outs,min_ins,min_outs,max_ins,max_outs,correction_method
+        #Carregando login_camera
+        print("df_login_camera")
+        self.df_login_cameras = load_login_cameras(li_conn,client,location)
+        print(self.df_login_cameras.head(10))
+        list_camera_ids = self.df_login_cameras['Id'].tolist()
 
+        #Carregando holidays
+        print("df_holidays")
+        self.df_holidays = load_holidays(li_conn) 
+        print(self.df_holidays.head(10))
 
+        #INTRODUÇÃO DO ERRO
+        print("SELEÇÃO PARA INTRODUZIR ERRO")
+        camera_id,last_day_str,start_hour,end_hour=prep_errors_step1(self,li_conn,list_camera_ids)
+        print(f"Camera:{camera_id} dia:{last_day_str} start:{start_hour}hs end:{end_hour}hs")
+        
+        #ERRO POR RECS MISSING
+        if type_of_error==1: # 2 camera hour record missing  
+            #select randomly 2 hours to delete rows for this camera this day
+            hour1 = random.randint(start_hour,end_hour)
+            hour1_str=str(hour1)
+            hour2 = random.randint(start_hour,end_hour)
+            hour2_str=str(hour2)
+            camera_id_str=str(camera_id)
+            #select the records to delete
+            result=prep_errors_step2(self,li_conn,camera_id_str,last_day_str,hour1_str,hour2_str)
+        
+            
 
+        self.df_peopleflowtotals=load_peopleflowtotals(li_conn)
+        print("df_peopleflowtotals")
+        print(self.df_peopleflowtotals.head(10))
+        li_conn.close()
 
-
-
+        
+    def load_data_azure(self, az_conn, az_cursor, client, location):#to be created
+        return None
+ 
+    # using the instance self dataframes, find
+    # errors and their corrections 
+    # and put them at df_all_failures in  this instance
     def find_corrections_bad_or_missing_records(self) -> list:
-        weekday_columns = {
-        0: ('counting_hour_monday', 'counting_hour_monday_qtd'),    # Segunda-feira
-        1: ('counting_hour_tuesday', 'counting_hour_tuesday_qtd'),  # Terça-feira
-        2: ('counting_hour_wednesday', 'counting_hour_wednesday_qtd'),  # Quarta-feira
-        3: ('counting_hour_thursday', 'counting_hour_thursday_qtd'),    # Quinta-feira
-        4: ('counting_hour_fryday', 'counting_hour_fryday_qtd'),        # Sexta-feira
-        5: ('counting_hour_saturday', 'counting_hour_saturday_qtd'),    # Sábado
-        6: ('counting_hour_sunday', 'counting_hour_sunday_qtd'),  
-        }
+        
+        def get_expected_historical_values(self,camera_id,last_day,hour,is_holiday, holiday_type):
+            
+            if not is_holiday:
+                df_historical_for_cam_weekday_hour=self.df_peopleflowtotals[
+                    self.df_peopleflowtotals['created_at'].dt.hour == hour and
+                    self.df_peopleflowtotals['created_at'].dt.weekday == last_day.weekday and
+                    self.df_peopleflowtotals['camera_id']==camera_id and
+                    self.df_peopleflowtotals['created_at'].dt.date != last_day and
+                    self.df_peopleflowtotals['created_at'].dt.date not in pd.to_datetime(self.df_holidays['date']).dt.date.values] 
+                correction_method="historical"
+            else :
+                df_historical_for_cam_weekday_hour=self.df_peopleflowtotals[
+                    self.df_peopleflowtotals['created_at'].dt.hour == hour and
+                    self.df_peopleflowtotals['camera_id']==camera_id and
+                    self.df_peopleflowtotals['created_at'].dt.date != last_day and
+                    holiday_type in pd.DataFrame(self.df_holidays['type']).values] 
+                correction_method="historical holiday"
+            
+            num_rows=len(df_historical_for_cam_weekday_hour)
+            if num_rows > 5 :
+
+                selected = df_historical_for_cam_weekday_hour[['total_inside', 'total_outside']]
+
+                max_ins=  selected['total_inside'].max()
+                min_ins = selected['total_inside'].min()
+                exp_ins = selected['total_inside'].mean()
+
+                max_outs = selected['total_outside'].max()
+                min_outs = selected['total_outside'].min()
+                exp_outs = selected['total_outside'].mean()
+
+                tuple_ret= exp_ins,exp_outs,min_ins,min_outs,max_ins,max_outs,correction_method
+            else:
+                tuple_ret= None,None,None,None,None,None,None
+            
+            return tuple_ret
+        
+        def get_expected_proportional_values(self,camera_id,last_day,hour,is_holiday,holiday_type):
+            
+            def get_list_good_cams_this_hour(self,last_day,hour,camera_id):
+                list_camera_ids=self.df_login_camera["Id"].values
+                for hour in active_hours:
+                    list_of_good_cams_for_this_hour=[]
+                    for camera_id_tested in list_camera_ids: 
+                        exists = self.df_all_failures.loc[
+                            self.df_all_failures["camera_id"] != camera_id &
+                            self.df_all_failures["camera_id"] == camera_id_tested &
+                            self.df_all_failures["last_day"] == last_day &
+                            self.df_all_failures["hour"] == hour]
+                        if not exists:
+                            list_of_good_cams_for_this_hour.add(camera_id_tested)
+                return list_of_good_cams_this_hour
+
+            # obtendo a lista de totais das cameras boas no periodo
+            list_of_good_cams_this_hour=get_list_good_cams_this_hour(self,last_day,hour,camera_id)
+            if len(list_of_good_cams_this_hour)==0:
+                return None
+            
+            # obtendo o histórico dataframes desta camera e das goodcams para fazer a proporção
+            if not is_holiday:
+                df_thiscam_for_cam_weekday_hour=self.df_peopleflowtotals[
+                    self.df_peopleflowtotals['created_at'].dt.hour == hour and 
+                    self.df_peopleflowtotals['created_at'].dt.weekday == last_day.weekday and
+                    self.df_peopleflowtotals['camera_id'] == camera_id and
+                    self.df_peopleflowtotals['created_at'].dt.date != last_day and
+                    self.df_peopleflowtotals['created_at'].dt.date not in pd.to_datetime(self.df_holidays['date']).dt.date.values] 
+  
+                df_goodcams_for_cam_weekday_hour=self.df_peopleflowtotals[
+                    self.df_peopleflowtotals['created_at'].dt.hour == hour and
+                    self.df_peopleflowtotals['created_at'].dt.weekday == last_day.weekday and
+                    self.df_peopleflowtotals['camera_id'] in list_of_good_cams_this_hour and
+                    self.df_peopleflowtotals['created_at'].dt.date != last_day and
+                    self.df_peopleflowtotals['created_at'].dt.date not in pd.to_datetime(self.df_holidays['date']).dt.date.values] 
+                correction_method="proportional"            
+            else :
+                df_thiscam_for_cam_weekday_hour=self.df_peopleflowtotals[
+                    self.df_peopleflowtotals['camera_id'] in list_of_good_cams_this_hour and 
+                    self.df_peopleflowtotals['created_at'].dt.date != last_day and
+                    holiday_type in pd.DataFrame(self.df_holidays['type']).values] 
+                
+                df_goodcams_for_cam_weekday_hour=self.df_peopleflowtotals[
+                    self.df_peopleflowtotals['camera_id'] in list_of_good_cams_this_hour and
+                    self.df_peopleflowtotals['created_at'].dt.date != last_day and
+                    self.df_peopleflowtotals['created_at'].dt.date in pd.to_datetime(self.df_holidays['date']).dt.date.values] 
+                correction_method="proportional holiday"     
+
+            # validando o numero de registros do historico
+            num_rows=len(df_goodcams_for_cam_weekday_hour)
+            if num_rows > 5 :
+                selected = df_thiscam_for_cam_weekday_hour[['total_inside', 'total_outside']]
+                sum_hist_ins_this=  selected['total_inside'].sum()
+                sum_hist_outs_this = selected['total_outside'].sum()
+            else:
+                return None
+            num_rows=len(df_goodcams_for_cam_weekday_hour)
+            if num_rows > 5 :
+                selected = df_goodcams_for_cam_weekday_hour[['total_inside', 'total_outside']]
+                sum_hist_ins_good=  selected['total_inside'].sum()
+                sum_hist_outs_good = selected['total_outside'].sum()
+            else:
+                return None
+
+            #obtendo  no dia de hoje os totais dessa camera
+            df_thiscam_for_cam_today_hour=self.df_peopleflowtotals[
+                    self.df_peopleflowtotals['camera_id'] ==camera_id and 
+                    self.df_peopleflowtotals['created_at'].dt.hour == hour  and
+                    self.df_peopleflowtotals['created_at'].dt.date == last_day ]
+            selected = df_thiscam_for_cam_today_hour[['total_inside', 'total_outside']]
+            sum_today_ins_this=  selected['total_inside'].sum()
+            sum_today_outs_this = selected['total_outside'].sum()
+        
+            #obtendo  no dia de hoje os totais das goodcams
+            df_goodcams_for_cam_today_hour=self.df_peopleflowtotals[
+                    self.df_peopleflowtotals['camera_id'] in list_of_good_cams_this_hour and 
+                    self.df_peopleflowtotals['created_at'].dt.hour == hour and
+                    self.df_peopleflowtotals['created_at'].dt.date == last_day ]
+            selected = df_thiscam_for_cam_today_hour[['total_inside', 'total_outside']]
+            sum_today_ins_good=  selected['total_inside'].sum()
+            sum_today_outs_good = selected['total_outside'].sum()
+
+            #calculando o total proporcional esperado e retornando
+            exp_ins=sum_today_ins_this*(sum_hist_ins_this/sum_hist_ins_good)
+            
+            exp_ins=sum_today_ins_this*(sum_hist_ins_this/sum_hist_ins_good)
+            exp_outs=sum_today_outs_this*(sum_hist_outs_this/sum_hist_outs_good)
+            tuple_ret= exp_ins,exp_outs,correction_method
+
+            return tuple_ret
+
         last_day = self.df_peopleflowtotals['created_at'].max().date()
         print(f"Last day in df_peopleflowtotals: {last_day}")
-        weekday=last_day.weekday()
-        working_columns=weekday_columns[weekday]
 
-        # find the expected hours work in this day from df_login_cameras and df_holidays
-        # if last_day is holiday, expected_hours will be empty else it is defined in holiday_table
-        is_holiday = last_day in pd.to_datetime(self.df_holidays['date']).dt.date.values
-        camera_failed_hours = {}
-        active_hours=[]
+        camera_failed_hours=[]
         for idx, login_camera_row in self.df_login_cameras.iterrows():
             camera_id=login_camera_row['Id']
-            if not is_holiday:
-                start_hour = login_camera_row[working_columns[0]]
-                end_hour = login_camera_row[working_columns[1]]
-            else:
-                start_hour=9
-                end_hour=23
+            start_hour,end_hour=self.get_active_hours(last_day,camera_id)
             active_hours = list(range(start_hour, end_hour + 1))
-            print(f"Working hoursthis camera {camera_id}  on {last_day}: {start_hour} to {end_hour}")
+
             #all totals all hours this day, this camera
             df_this_camera_hourly_totals = self.df_peopleflowtotals[
                 self.df_peopleflowtotals['camera_id'] == camera_id and
                 self.df_peopleflowtotals['created_at'].dt.date == last_day] 
+            
             for hour in active_hours:
-                exp_ins,exp_outs,min_ins,min_outs,max_ins,max_outs,correction_method=get_expected_historical_values(self,camera_id,last_day,hour,is_holiday)
+                exp_ins,exp_outs,min_ins,min_outs,max_ins,max_outs,correction_method=get_expected_historical_values(self,camera_id,last_day,hour,list_of_holidays)
                 if hour not in df_this_camera_hourly_totals['created_at'].dt.hour.values:
                     failing_row = (camera_id, last_day, hour, 0,0,exp_ins,exp_outs,"missing_record",correction_method)
                     print(f"missing: {failing_row}")
@@ -146,20 +376,74 @@ class ClientLocationProcessor:
                         print(f"bad record: {failing_row}")
                         camera_failed_hours.add(failing_row)
                     else:
-                    print(f"this camera: {camera_id} at hour {hour} is found OK")  
+                        print(f"this camera: {camera_id} at hour {hour} is found OK")  
         # the loop to found missing or bad records ends here.
+        # todos os problemas encontrados estão no df_all_failures
+        columns = ["camera_id", "last_day", "hour", "ins", "outs", "exp_ins", "exp_outs", "status", "correction_method"]
+        self.df_all_failures = pd.DataFrame(self.camera_failed_hours, columns=columns)
         # next try to improve the historical corrections on bad records using proportions        
         # for calculate proportions, i have to have at least one good cam in this hour. 
         # it means for each hour, the list of good cams is the ones not in camera_failing_hours
-        list_camera_ids = self.df_login_cameras['Id'].tolist
-        for hour in active_hours:
-            list_of_good_cams_for_this_hour=[]
-            for camera_id in list_camera_ids:
-                camera_id=login_camera_row['Id']
-                exists = any(
-                    row[0] == camera_id and row[1] == last_day and row[2] == hour
-                    for row in camera_failed_hours
-                )
-                if not exists:
-                    list_of_good_cams_for_this_hour.add(camera_id)
-            #at this point, list_of_camera_id for thhis hour is complete
+        
+        for failing_row in self.df_all_failures.iterrows():
+            camera_id=failing_row["camera_id"]
+            last_day=failing_row["last_day"]
+            hour=failing_row["hour"]
+
+            exp_ins,exp_outs,correction_method=get_expected_proportional_values(self,camera_id,last_day,hour,is_holiday)
+            if correction_method==None:
+                continue
+            self.df_all_failures.loc[
+                self.df_all_failures["camera_id"]==camera_id &
+                self.df_all_failures["last_day"]==last_day &
+                self.df_all_failures["hour"]==hour,"exp_ins"]=exp_ins
+            self.df_all_failures.loc[
+                self.df_all_failures["camera_id"]==camera_id &
+                self.df_all_failures["last_day"]==last_day &
+                self.df_all_failures["hour"]==hour,"exp_outs"]=exp_outs
+            self.df_all_failures.loc[
+                self.df_all_failures["camera_id"]==camera_id &
+                self.df_all_failures["last_day"]==last_day &
+                self.df_all_failures["hour"]==hour,"correction_method"]=correction_method
+            #todas as bad cams corrigidas se possivel com proportional values
+
+    def apply_corrections_test(self):#to be created
+        return None
+       
+    def apply_corrections_azure(self,az_conn, az_cursor,client, location):#to be created 
+        # to be created
+        return None
+        
+# classe ClientLocationProcessor definida
+# a df_all_failures esta parcialmente criada
+# falta ainda testar e criar correcoes para contagens negativas 
+# falta tambem criar a funcao apply_corrections_test para completar os testes
+# os testes serao feitos da seguinte forma:
+# a) preparar o nodehub
+# b) simular e ver o resultado em df_all_failures 
+#   de uma falha de horarios perdidos 
+# c) simular e ver o resultado em df_all_failures
+#   de uma falha de contagem errada     
+# c) simular e ver o resultado em df_all_failures dos 2 tipo
+#   de uma falha de contagem errada  e de uma de contagem errada
+# d) criar e testar o programa de apply_corrections_test
+
+# agora preciso criar o main que executa o teste a) 
+
+# ------------------------------
+# Main Processing
+# ------------------------------
+if __name__ == "__main__":
+    try:
+        client="net3rcorp"
+        location="teste"
+        test_set=ClientLocationProcessor(client,location)
+        test_set.load_data_nodehub_test(1)
+        print("all dataframes loaded")
+        #test_set.find_corrections_bad_or_missing_records()
+
+    except:
+        print("could not create test_object")
+
+
+
