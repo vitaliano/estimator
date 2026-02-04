@@ -161,6 +161,52 @@ class ClientLocationProcessor:
                 print("Erro no sql")
                 return "NOK"
 
+        def prep_errors_step3(self,li_conn,camera_id_str,last_day_str,hour3_str,hour4_str):
+            try:
+                li_cursor=li_conn.cursor()
+                #este teste elimina 2 registros
+                query=f"""SELECT * FROM peopleflowtotals WHERE 
+                DATE(created_at) = '{last_day_str}' AND 
+                ( strftime('%H', created_at)  = '{hour3_str}'  
+                OR strftime('%H', created_at)  = '{hour4_str}') 
+                AND camera_id = {camera_id_str};"""
+                li_cursor.execute(query,([]))
+                rows = li_cursor.fetchall()
+                print("os registros listados receberao contagem ruim no DB")
+                if rows==[]:
+                    print("Nnhum registro para marcar com erro")
+                for row in rows:
+                    print(row)
+                    id=row[0]
+                    ins=row[3]
+                    outs=row[4]
+                    new_ins=int(ins/10)
+                    new_ins_str=str(new_ins)
+                    query=f"""UPDATE peopleflowtotals 
+                    SET total_inside = {new_ins_str}
+                    WHERE ID={id};"""                    
+                    li_cursor.execute(query,([]))
+                li_conn.commit()
+                # mostrando os novos valores de ins
+                query=f"""SELECT * FROM peopleflowtotals WHERE 
+                DATE(created_at) = '{last_day_str}' AND 
+                ( strftime('%H', created_at)  = '{hour3_str}'  
+                OR strftime('%H', created_at)  = '{hour4_str}') 
+                AND camera_id = {camera_id_str};"""
+                li_cursor.execute(query,([]))
+                rows = li_cursor.fetchall()
+                print("os registros listados receberam contagem ruim no DB")
+                for row in rows:
+                    print(row)
+                    
+                return "OK"
+            except:
+                print("Erro no sql")
+                return "NOK"
+
+
+
+
     #---Load_data nodehub test code--------------------------------------------------------
         
         #RESTAURO DO DB DE TESTE A PARTIR DO NODEHUB
@@ -186,12 +232,13 @@ class ClientLocationProcessor:
         print(self.df_holidays.head(10))
 
         #INTRODUÇÃO DO ERRO
-        print("SELEÇÃO PARA INTRODUZIR ERRO")
+        
+        #ERRO POR RECS MISSING
+        print("SELEÇÃO PARA INTRODUZIR ERRO DE PERDA DE REGISTRO" )
         camera_id,last_day_str,start_hour,end_hour=prep_errors_step1(self,li_conn,list_camera_ids)
         print(f"Camera:{camera_id} dia:{last_day_str} start:{start_hour}hs end:{end_hour}hs")
         
-        #ERRO POR RECS MISSING
-        if type_of_error==1: # 2 camera hour record missing  
+        if type_of_error==1 or type_of_error==2: # 2 camera hour record missing  
             #select randomly 2 hours to delete rows for this camera this day
             hour1 = random.randint(start_hour,end_hour)
             hour1_str=str(hour1)
@@ -201,8 +248,21 @@ class ClientLocationProcessor:
             #select the records to delete
             result=prep_errors_step2(self,li_conn,camera_id_str,last_day_str,hour1_str,hour2_str)
         
-            
+        #ERRO POR BAD COUNTING
+        print("SELEÇÃO PARA INTRODUZIR ERRO DE PERDA DE REGISTRO" )
+        camera_id,last_day_str,start_hour,end_hour=prep_errors_step1(self,li_conn,list_camera_ids)
+        print(f"Camera:{camera_id} dia:{last_day_str} start:{start_hour}hs end:{end_hour}hs")
+        
+        if type_of_error==2 or type_of_error==3: # 2 camera hour record bad counting              
+            hour3 = random.randint(start_hour,end_hour)
+            hour4 = random.randint(start_hour,end_hour)      
+            hour3_str=str(hour3)
+            hour4_str=str(hour4)
+            camera_id_str=str(camera_id)
+        
+            result=prep_errors_step3(self,li_conn,camera_id_str,last_day_str,hour3_str,hour4_str)
 
+       
         self.df_peopleflowtotals=load_peopleflowtotals(li_conn)
         print("df_peopleflowtotals")
         print(self.df_peopleflowtotals.head(10))
@@ -217,7 +277,7 @@ class ClientLocationProcessor:
     # and put them at df_all_failures in  this instance
     def find_corrections_bad_or_missing_records(self) -> list:
         
-        def get_expected_historical_values(self,camera_id,last_day,hour,is_holiday, holiday_type):
+        def get_expected_historical_values(self,camera_id,last_day,hour,is_holiday,holiday_type):
             
             if not is_holiday:
                 df_historical_for_cam_weekday_hour=self.df_peopleflowtotals[
@@ -361,7 +421,7 @@ class ClientLocationProcessor:
                 self.df_peopleflowtotals['created_at'].dt.date == last_day] 
             
             for hour in active_hours:
-                exp_ins,exp_outs,min_ins,min_outs,max_ins,max_outs,correction_method=get_expected_historical_values(self,camera_id,last_day,hour,list_of_holidays)
+                exp_ins,exp_outs,min_ins,min_outs,max_ins,max_outs,correction_method=get_expected_historical_values(self,camera_id,last_day,hour,False,None)
                 if hour not in df_this_camera_hourly_totals['created_at'].dt.hour.values:
                     failing_row = (camera_id, last_day, hour, 0,0,exp_ins,exp_outs,"missing_record",correction_method)
                     print(f"missing: {failing_row}")
@@ -390,7 +450,7 @@ class ClientLocationProcessor:
             last_day=failing_row["last_day"]
             hour=failing_row["hour"]
 
-            exp_ins,exp_outs,correction_method=get_expected_proportional_values(self,camera_id,last_day,hour,is_holiday)
+            exp_ins,exp_outs,correction_method=get_expected_proportional_values(self,camera_id,last_day,hour,False,None)
             if correction_method==None:
                 continue
             self.df_all_failures.loc[
@@ -438,7 +498,7 @@ if __name__ == "__main__":
         client="net3rcorp"
         location="teste"
         test_set=ClientLocationProcessor(client,location)
-        test_set.load_data_nodehub_test(1)
+        test_set.load_data_nodehub_test(3)
         print("all dataframes loaded")
         #test_set.find_corrections_bad_or_missing_records()
 
